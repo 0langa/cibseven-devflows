@@ -87,8 +87,8 @@ save you from fighting your shell over backslash escaping.
 curl -s -X POST http://localhost:8080/engine-rest/process-definition/key/devflows-release/start -H "Content-Type: application/json" -d '{"variables":{"repo_path":{"value":"ABSOLUTE/PATH/TO/cibseven-devflows","type":"String"},"version":{"value":"0.2.0","type":"String"},"dry_run":{"value":true,"type":"Boolean"}}}'
 ```
 
-Then approve it at <http://localhost:8080/webapp/> as `demo` / `demo`: Tasklist, filter
-**My Group Tasks**, claim **Approve release**, tick approve, submit.
+Then approve it in Tasklist at <http://localhost:8080/camunda/app/tasklist/default/> as
+`demo` / `demo`: filter **My Group Tasks**, claim **Approve release**, tick approve, submit.
 
 In practice you start runs through the MCP server instead of curl. See
 [docs/DEMO.md](docs/DEMO.md) for the full walkthrough.

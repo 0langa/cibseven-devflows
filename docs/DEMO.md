@@ -40,10 +40,16 @@ uv run devflows-worker
 It should print `Waiting for work on: devflows.gates, devflows.tag, devflows.publish`. Put this
 terminal where the audience can see it; it is the part that shows the work actually happening.
 
-**5. Open two browser tabs**, both logged in at <http://localhost:8080/webapp/> as `demo` / `demo`:
+**5. Open two browser tabs**, both logged in as `demo` / `demo`:
 
-- **Cockpit**, on the `Release ritual` process definition
-- **Tasklist**, with the filter **My Group Tasks** selected
+- **Cockpit**: <http://localhost:8080/camunda/app/cockpit/default/> , on the `Release ritual`
+  process definition
+- **Tasklist**: <http://localhost:8080/camunda/app/tasklist/default/> , with the filter
+  **My Group Tasks** selected
+
+CIB seven also ships its own newer web UI at <http://localhost:8080/webapp/>. This demo uses
+the classic Camunda 7 webapps under `/camunda/app/`, because they are the ones an interviewer
+will recognise and because they support deep links to a single task or instance.
 
 **6. Have Claude Code open** in this repository, with the plugin loaded.
 

@@ -40,7 +40,8 @@ The user must have three things running. Check, do not assume.
   in this conversation.
 - Never approve on the user's behalf. The approval step is the whole point of putting this in an
   engine.
-- The user can also approve in the Tasklist at <http://localhost:8080/webapp/> as `demo` / `demo`.
+- The user can also approve in Tasklist at
+  <http://localhost:8080/camunda/app/tasklist/default/> as `demo` / `demo`.
   If they prefer that, wait and poll `get_run` instead of calling `approve_gate`.
 - If a gate fails, the process ends at "Gates failed". Show the failing gate's `output` and stop.
   Do not restart the release until the user has fixed the problem.
