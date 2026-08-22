@@ -1,0 +1,7 @@
+{
+  "name": "cibseven-devflows",
+  "version": "0.1.0",
+  "description": "Run a repository's release ritual as a BPMN process on a local CIB seven engine, with a human approval step.",
+  "author": { "name": "Julius" },
+  "license": "Apache-2.0"
+}

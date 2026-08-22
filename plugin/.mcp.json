@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cibseven-devflows": {
+      "command": "uv",
+      "args": ["run", "devflows-mcp"],
+      "env": {
+        "DEVFLOWS_ENGINE_URL": "http://localhost:8080/engine-rest"
+      }
+    }
+  }
+}
