@@ -44,13 +44,16 @@ The REST API on port 8080 is open to anything that can reach it. That is accepta
 that runs on your own machine and binds to localhost, and it is why this project sends no
 credentials. Do not expose this port to a network you do not control.
 
-## Notes for this machine
+## If `docker` is not on your PATH
 
-The Docker CLI is not on `PATH`. The full path is:
+A per-user Docker Desktop install on Windows does not always put the CLI on `PATH`. It lives at:
 
 ```
-C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe
+%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe
 ```
 
-Never force-kill Docker Desktop processes on this machine. Leftover Unix socket files become
-undeletable and Docker will not start again. Quit through the tray icon or `docker desktop stop`.
+Use that full path, or add the directory to `PATH`.
+
+Do not force-kill Docker Desktop processes on Windows. Leftover socket files can become
+undeletable, and Docker will then refuse to start. Quit it through the tray icon or with
+`docker desktop stop`.

@@ -25,3 +25,6 @@ engine/data/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Personal notes, kept locally and never published
+docs/GOAL-v0.1.0.md
