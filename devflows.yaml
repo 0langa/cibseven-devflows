@@ -1,0 +1,14 @@
+# How cibseven-devflows releases itself.
+# Every command runs in this repository directory, on your machine.
+
+gates:
+  - name: tests
+    run: uv run pytest -q
+  - name: lint
+    run: uv run ruff check .
+
+tag:
+  format: "v{version}"
+
+publish:
+  run: gh release create v{version} --generate-notes

@@ -1,0 +1,47 @@
+# A local CIB seven engine for cibseven-devflows.
+#
+#   docker compose -f engine/docker-compose.yml up -d
+#   docker compose -f engine/docker-compose.yml down
+#
+# Web apps: http://localhost:8080/webapp/   login demo / demo
+# REST API: http://localhost:8080/engine-rest/
+
+services:
+  # The image does not contain /camunda/camunda-h2-dbs; the engine creates it at
+  # startup. Docker therefore creates the mount point for a named volume as
+  # root, and the engine, which runs as uid 1000, cannot write its database
+  # there. This one-shot service hands the directory over before the engine
+  # starts, so `up -d` works on a cold machine with no manual steps.
+  cibseven-init:
+    image: cibseven/cibseven:2.2.0
+    container_name: cibseven-init
+    user: root
+    entrypoint: ["sh", "-c", "chown -R 1000:1000 /camunda/camunda-h2-dbs"]
+    volumes:
+      - cibseven-h2:/camunda/camunda-h2-dbs
+    restart: "no"
+
+  cibseven:
+    image: cibseven/cibseven:2.2.0
+    container_name: cibseven
+    depends_on:
+      cibseven-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      TZ: Europe/Berlin
+    volumes:
+      # The H2 database file lives here. Without this volume every restart
+      # throws away the process history, and the history is the point.
+      - cibseven-h2:/camunda/camunda-h2-dbs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/engine-rest/engine || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+volumes:
+  cibseven-h2:
