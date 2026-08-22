@@ -43,6 +43,9 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: needs a running CIB seven engine; skips itself when there is none",
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["devflows_core", "devflows_worker", "devflows_mcp"]

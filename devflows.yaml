@@ -3,7 +3,10 @@
 
 gates:
   - name: tests
-    run: uv run pytest -q
+    # The integration tests drive a release through the engine. This gate runs
+    # inside such a release, so including them here would start a release from
+    # inside a release. Run them yourself with: uv run pytest -m integration
+    run: uv run pytest -q -m "not integration"
   - name: lint
     run: uv run ruff check .
 
