@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- The integration tests no longer fail when a real `devflows-worker` is running against the same
+  engine. They now wait for the state the engine reaches, not for their own poll to be the one that
+  caused it.
+
+### Documentation
+
+- `docs/DEMO.md` records the process instance that cut v0.1.0, so the self-release claim can be
+  checked.
+
 ## [0.1.0] - 2026-08-22
 
 First release. It was cut by running this project's own release process.
