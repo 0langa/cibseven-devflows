@@ -15,9 +15,9 @@ from devflows_core.config import ConfigError, load_config
 from devflows_core.engine import PROCESS_KEY, EngineError
 from devflows_core.paths import BpmnNotFound, default_bpmn_path
 
-COCKPIT_INSTANCE_URL = (
-    "http://localhost:8080/camunda/app/cockpit/default/#/process-instance/{instance_id}"
-)
+# The CIB seven web UI. The older webapps under /camunda/app/ still work in 2.2
+# but render a "deprecated and no longer supported" banner, so do not link there.
+INSTANCE_URL = "http://localhost:8080/webapp/#/seven/auth/processes/instance/{instance_id}"
 
 
 def engine_status(client: Any) -> dict[str, Any]:
@@ -92,7 +92,7 @@ def start_release(
         "dry_run": bool(dry_run),
         "version": version.strip(),
         "repo_path": str(repo_path),
-        "cockpit_url": COCKPIT_INSTANCE_URL.format(instance_id=instance_id),
+        "instance_url": INSTANCE_URL.format(instance_id=instance_id),
     }
 
 

@@ -161,9 +161,11 @@ def test_start_release_defaults_to_a_dry_run(repo):
     assert client.started[1]["dry_run"] is True
 
 
-def test_start_release_gives_back_a_cockpit_link(repo):
+def test_start_release_gives_back_a_link_to_the_instance(repo):
     result = tools.start_release(FakeClient(), str(repo), "0.1.0")
-    assert result["cockpit_url"].endswith("pi-1")
+    assert result["instance_url"].endswith("pi-1")
+    # The older /camunda/app/ webapps are deprecated in CIB seven 2.2.
+    assert "/camunda/app/" not in result["instance_url"]
 
 
 def test_start_release_refuses_a_repository_without_a_config(tmp_path):

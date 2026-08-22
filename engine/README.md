@@ -18,8 +18,7 @@ docker compose -f engine/docker-compose.yml down
 
 | What | Where |
 | --- | --- |
-| Cockpit, Tasklist, Admin (classic Camunda 7 webapps) | <http://localhost:8080/camunda/app/> |
-| CIB seven web UI | <http://localhost:8080/webapp/> |
+| Web apps (processes, tasks, admin) | <http://localhost:8080/webapp/> |
 | REST API | <http://localhost:8080/engine-rest/> |
 | Login | `demo` / `demo` |
 

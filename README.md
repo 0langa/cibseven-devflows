@@ -23,7 +23,7 @@ in the process rather than a promise in a prompt.
 flowchart LR
     agent["Claude Code<br/>(any MCP client)"] -- stdio --> mcpserver["devflows-mcp"]
     mcpserver -- REST --> engine["CIB seven engine<br/>Docker, H2, localhost:8080"]
-    human["You, in Tasklist"] -- approve --> engine
+    human["You, in the web UI"] -- approve --> engine
     engine -- fetchAndLock --> worker["devflows-worker"]
     worker -- shell --> repo["your repository<br/>pytest, ruff, git, gh"]
 ```
@@ -48,8 +48,8 @@ flowchart LR
 ```
 
 The three rectangles with a topic name are external tasks. "Approve release" is a BPMN user task,
-so it waits, it survives an engine restart, and it can be answered either in the Tasklist web UI or
-through the `approve_gate` MCP tool.
+so it waits, it survives an engine restart, and it can be answered either in the web UI or through
+the `approve_gate` MCP tool.
 
 `dry_run=true` runs the gates for real and changes nothing else: no tag, no push, no release.
 
@@ -87,8 +87,8 @@ save you from fighting your shell over backslash escaping.
 curl -s -X POST http://localhost:8080/engine-rest/process-definition/key/devflows-release/start -H "Content-Type: application/json" -d '{"variables":{"repo_path":{"value":"ABSOLUTE/PATH/TO/cibseven-devflows","type":"String"},"version":{"value":"0.2.0","type":"String"},"dry_run":{"value":true,"type":"Boolean"}}}'
 ```
 
-Then approve it in Tasklist at <http://localhost:8080/camunda/app/tasklist/default/> as
-`demo` / `demo`: filter **My Group Tasks**, claim **Approve release**, tick approve, submit.
+Then approve it at <http://localhost:8080/webapp/#/seven/auth/tasks> as `demo` / `demo`:
+filter **My Group Tasks**, claim **Approve release**, tick approve, submit.
 
 In practice you start runs through the MCP server instead of curl. See
 [docs/DEMO.md](docs/DEMO.md) for the full walkthrough.
@@ -129,7 +129,7 @@ an older file.
 | `engine_status` | — | Whether the engine answers, its version, its engine names |
 | `deploy_process` | `bpmn_path` (optional) | Deployment id and the deployed process definition keys |
 | `list_processes` | — | Deployed process definitions with key, version and id |
-| `start_release` | `repo_path`, `version`, `dry_run` (default `true`) | Process instance id and a Cockpit link |
+| `start_release` | `repo_path`, `version`, `dry_run` (default `true`) | Process instance id and a link to it in the web UI |
 | `get_run` | `process_instance_id` | State, current activity, open tasks, the gate report, all variables |
 | `list_gates` | `repo_path` | The gates that repository would run. Does not touch the engine |
 | `approve_gate` | `task_id`, `approve`, `comment` | Confirmation that the approval task was completed |

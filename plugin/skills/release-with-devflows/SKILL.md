@@ -23,7 +23,7 @@ The user must have three things running. Check, do not assume.
 1. `list_gates(repo_path)` - show the user what is about to run. If this fails, the repository has
    no `devflows.yaml` and cannot be released this way.
 2. `start_release(repo_path, version, dry_run=true)` - **always rehearse first.** Report the
-   process instance id and the Cockpit link.
+   process instance id and the link to the run in the web UI.
 3. `get_run(process_instance_id)` - poll until `state` is no longer `running` or `open_tasks` is not
    empty. Show the user the `gates` list, not the raw variables.
 4. When a task is waiting, **stop and ask the user**. Do not call `approve_gate` on your own
@@ -40,8 +40,8 @@ The user must have three things running. Check, do not assume.
   in this conversation.
 - Never approve on the user's behalf. The approval step is the whole point of putting this in an
   engine.
-- The user can also approve in Tasklist at
-  <http://localhost:8080/camunda/app/tasklist/default/> as `demo` / `demo`.
+- The user can also approve in the web UI at <http://localhost:8080/webapp/#/seven/auth/tasks>
+  as `demo` / `demo`, filter **My Group Tasks**.
   If they prefer that, wait and poll `get_run` instead of calling `approve_gate`.
 - If a gate fails, the process ends at "Gates failed". Show the failing gate's `output` and stop.
   Do not restart the release until the user has fixed the problem.

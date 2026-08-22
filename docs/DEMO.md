@@ -40,16 +40,15 @@ uv run devflows-worker
 It should print `Waiting for work on: devflows.gates, devflows.tag, devflows.publish`. Put this
 terminal where the audience can see it; it is the part that shows the work actually happening.
 
-**5. Open two browser tabs**, both logged in as `demo` / `demo`:
+**5. Open two browser tabs**, both logged in at <http://localhost:8080/webapp/> as `demo` / `demo`:
 
-- **Cockpit**: <http://localhost:8080/camunda/app/cockpit/default/> , on the `Release ritual`
-  process definition
-- **Tasklist**: <http://localhost:8080/camunda/app/tasklist/default/> , with the filter
-  **My Group Tasks** selected
+- **Processes**: <http://localhost:8080/webapp/#/seven/auth/processes/list> , on `Release ritual`
+- **Tasks**: <http://localhost:8080/webapp/#/seven/auth/tasks> , with the filter **My Group Tasks** selected
 
-CIB seven also ships its own newer web UI at <http://localhost:8080/webapp/>. This demo uses
-the classic Camunda 7 webapps under `/camunda/app/`, because they are the ones an interviewer
-will recognise and because they support deep links to a single task or instance.
+Use this front-end, not the older webapps under `/camunda/app/`. CIB seven 2.2 still serves
+those, but it shows a red banner on every page saying they are deprecated and no longer
+supported. Demonstrating the deprecated UI to someone who works on CIB seven would be a poor
+look.
 
 **6. Have Claude Code open** in this repository, with the plugin loaded.
 
@@ -66,7 +65,7 @@ will recognise and because they support deep links to a single task or instance.
 
 ### 0:45 – 1:30 · The process
 
-Show the diagram in Cockpit.
+Open `Release ritual` under **Processes** and show the diagram.
 
 > Three service tasks, one user task, two gateways. The service tasks are **external tasks**: the
 > engine does not run anything itself, it publishes work on a topic and a worker on my machine
@@ -90,14 +89,14 @@ Point at the worker terminal while it works.
 > There it is picking up the gates topic. It is running this repository's real test suite and its
 > real linter, from `devflows.yaml`. The engine is just watching.
 
-Point at Cockpit and refresh.
+Switch to the process view and refresh.
 
 > And the token has moved to the approval task. The gate report is already a process variable, so
 > it is in the history for good.
 
 ### 2:45 – 4:00 · Approve as a human
 
-Switch to Tasklist, **My Group Tasks**.
+Switch to **Tasks**, filter **My Group Tasks**.
 
 > Here is the same task from the other side. It is assigned to the `camunda-admin` group, not to a
 > person, so anyone in that group can pick it up.
@@ -112,7 +111,7 @@ Point back at the worker terminal as the tag and publish steps run.
 
 ### 4:00 – 5:00 · The result
 
-Show the completed instance in Cockpit, under **History**.
+Show the completed instance under **Processes**, in the history view.
 
 > Completed. Every variable is here: which gates ran, what they printed, who approved and what they
 > said, the tag, the release URL.
@@ -127,7 +126,7 @@ Open <https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0>.
 ## Talking points
 
 **CIB seven is a Camunda 7 fork.** It is a maintained open-source continuation of Camunda 7: same
-engine, same `/engine-rest` API, same Cockpit, Tasklist and Admin web apps. Everything in this
+engine, same `/engine-rest` API, same web apps. Everything in this
 repository is standard Camunda 7 BPMN with the `camunda` extension namespace, and it opens
 unchanged in Camunda Modeler 5.x as a Camunda 7 diagram. Nothing here is a special case.
 
@@ -159,7 +158,7 @@ incidents when a step fails — comes from putting the process in an engine inst
 | A run starts but nothing happens | The worker is not running | `uv run devflows-worker` in a second terminal |
 | `start_release` fails with a connection error | The engine is not up yet | `docker compose -f engine/docker-compose.yml up -d`, then wait for `/engine-rest/version` |
 | `start_release` fails saying the process is unknown | The process is not deployed | Call the `deploy_process` MCP tool, or the curl command above |
-| The task does not appear in Tasklist | Wrong filter | Select **My Group Tasks**, not **My Tasks**; the task belongs to the group until you claim it |
+| The task does not appear | Wrong filter | Select **My Group Tasks**, not **My Tasks**; the task belongs to the group until you claim it |
 | The engine crashes on start with `AccessDeniedException` | The `cibseven-init` service did not run | Use `docker compose up -d`, not `docker run`; see [engine/README.md](../engine/README.md) |
 
 ## Reset between demos
