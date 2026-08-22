@@ -123,6 +123,21 @@ Then show the real thing:
 
 Open <https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0>.
 
+### The v0.1.0 release was cut by this process
+
+For the record, so the claim can be checked rather than taken on trust:
+
+| | |
+| --- | --- |
+| Process instance | `0e656a8f-9e47-11f1-be39-22fc550e6cab` |
+| Started | 2026-08-22, `dry_run` false, after a dry run of the same version |
+| Approved by | `demo`, in the web UI, comment "Good release" |
+| Tag | `v0.1.0`, created by the `devflows.tag` step |
+| Release | <https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0>, created by `devflows.publish` |
+
+The instance is in the engine history as long as its 30-day `historyTimeToLive` allows. If it has
+expired by the time you read this, the numbers above are what it recorded.
+
 ## Talking points
 
 **CIB seven is a Camunda 7 fork.** It is a maintained open-source continuation of Camunda 7: same
