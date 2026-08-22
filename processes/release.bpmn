@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:camunda="http://camunda.org/schema/1.0/bpmn"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="devflows_definitions"
+                  targetNamespace="http://cibseven.org/devflows"
+                  exporter="Camunda Modeler"
+                  exporterVersion="5.49.0">
+  <bpmn:process id="devflows-release" name="Release ritual" isExecutable="true"
+                camunda:historyTimeToLive="P30D">
+
+    <bpmn:startEvent id="start" name="Release requested">
+      <bpmn:outgoing>flow_start_gates</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="run_gates" name="Run gates"
+                      camunda:type="external" camunda:topic="devflows.gates">
+      <bpmn:incoming>flow_start_gates</bpmn:incoming>
+      <bpmn:outgoing>flow_gates_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="gates_gateway" name="Gates passed?">
+      <bpmn:incoming>flow_gates_gateway</bpmn:incoming>
+      <bpmn:outgoing>flow_gates_yes</bpmn:outgoing>
+      <bpmn:outgoing>flow_gates_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="approve_release" name="Approve release"
+                   camunda:candidateGroups="camunda-admin">
+      <bpmn:extensionElements>
+        <camunda:formData>
+          <camunda:formField id="approved" label="Approve this release" type="boolean"
+                             defaultValue="false" />
+          <camunda:formField id="approval_comment" label="Comment" type="string" />
+        </camunda:formData>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_gates_yes</bpmn:incoming>
+      <bpmn:outgoing>flow_approval_gateway</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="approval_gateway" name="Approved?">
+      <bpmn:incoming>flow_approval_gateway</bpmn:incoming>
+      <bpmn:outgoing>flow_approved_yes</bpmn:outgoing>
+      <bpmn:outgoing>flow_approved_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="create_tag" name="Tag"
+                      camunda:type="external" camunda:topic="devflows.tag">
+      <bpmn:incoming>flow_approved_yes</bpmn:incoming>
+      <bpmn:outgoing>flow_tag_publish</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="publish_release" name="Publish"
+                      camunda:type="external" camunda:topic="devflows.publish">
+      <bpmn:incoming>flow_tag_publish</bpmn:incoming>
+      <bpmn:outgoing>flow_publish_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="end_gates_failed" name="Gates failed">
+      <bpmn:incoming>flow_gates_no</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="end_rejected" name="Release rejected">
+      <bpmn:incoming>flow_approved_no</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="end_released" name="Released">
+      <bpmn:incoming>flow_publish_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="flow_start_gates" sourceRef="start" targetRef="run_gates" />
+    <bpmn:sequenceFlow id="flow_gates_gateway" sourceRef="run_gates" targetRef="gates_gateway" />
+    <bpmn:sequenceFlow id="flow_gates_yes" name="yes" sourceRef="gates_gateway"
+                       targetRef="approve_release">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${gates_passed == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_gates_no" name="no" sourceRef="gates_gateway"
+                       targetRef="end_gates_failed">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${gates_passed == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_approval_gateway" sourceRef="approve_release"
+                       targetRef="approval_gateway" />
+    <bpmn:sequenceFlow id="flow_approved_yes" name="ship" sourceRef="approval_gateway"
+                       targetRef="create_tag">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${approved == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_approved_no" name="stop" sourceRef="approval_gateway"
+                       targetRef="end_rejected">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${approved == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_tag_publish" sourceRef="create_tag" targetRef="publish_release" />
+    <bpmn:sequenceFlow id="flow_publish_end" sourceRef="publish_release" targetRef="end_released" />
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="diagram">
+    <bpmndi:BPMNPlane id="plane" bpmnElement="devflows-release">
+      <bpmndi:BPMNShape id="di_start" bpmnElement="start">
+        <dc:Bounds x="160" y="182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="137" y="225" width="83" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_run_gates" bpmnElement="run_gates">
+        <dc:Bounds x="250" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_gates_gateway" bpmnElement="gates_gateway" isMarkerVisible="true">
+        <dc:Bounds x="405" y="175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="392" y="132" width="76" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_end_gates_failed" bpmnElement="end_gates_failed">
+        <dc:Bounds x="412" y="312" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="396" y="355" width="69" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_approve_release" bpmnElement="approve_release">
+        <dc:Bounds x="510" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_approval_gateway" bpmnElement="approval_gateway" isMarkerVisible="true">
+        <dc:Bounds x="665" y="175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="662" y="132" width="57" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_end_rejected" bpmnElement="end_rejected">
+        <dc:Bounds x="672" y="312" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="650" y="355" width="81" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_create_tag" bpmnElement="create_tag">
+        <dc:Bounds x="770" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_publish_release" bpmnElement="publish_release">
+        <dc:Bounds x="920" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="di_end_released" bpmnElement="end_released">
+        <dc:Bounds x="1072" y="182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1067" y="225" width="47" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="di_flow_start_gates" bpmnElement="flow_start_gates">
+        <di:waypoint x="196" y="200" /><di:waypoint x="250" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_gates_gateway" bpmnElement="flow_gates_gateway">
+        <di:waypoint x="350" y="200" /><di:waypoint x="405" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_gates_yes" bpmnElement="flow_gates_yes">
+        <di:waypoint x="455" y="200" /><di:waypoint x="510" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="472" y="182" width="18" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_gates_no" bpmnElement="flow_gates_no">
+        <di:waypoint x="430" y="225" /><di:waypoint x="430" y="312" />
+        <bpmndi:BPMNLabel><dc:Bounds x="437" y="262" width="14" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_approval_gateway" bpmnElement="flow_approval_gateway">
+        <di:waypoint x="610" y="200" /><di:waypoint x="665" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_approved_yes" bpmnElement="flow_approved_yes">
+        <di:waypoint x="715" y="200" /><di:waypoint x="770" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="731" y="182" width="23" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_approved_no" bpmnElement="flow_approved_no">
+        <di:waypoint x="690" y="225" /><di:waypoint x="690" y="312" />
+        <bpmndi:BPMNLabel><dc:Bounds x="697" y="262" width="23" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_tag_publish" bpmnElement="flow_tag_publish">
+        <di:waypoint x="870" y="200" /><di:waypoint x="920" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="di_flow_publish_end" bpmnElement="flow_publish_end">
+        <di:waypoint x="1020" y="200" /><di:waypoint x="1072" y="200" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
