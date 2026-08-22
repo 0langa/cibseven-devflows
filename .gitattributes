@@ -1,0 +1,3 @@
+* text=auto eol=lf
+*.bpmn text eol=lf
+*.png binary

@@ -1,0 +1,45 @@
+[project]
+name = "cibseven-devflows"
+version = "0.1.0"
+description = "Run developer workflows as BPMN processes on a local CIB seven engine"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Julius" }]
+dependencies = [
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "mcp>=1.2",
+]
+
+[project.scripts]
+devflows-worker = "devflows_worker.main:main"
+devflows-mcp = "devflows_mcp.server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "core/devflows_core",
+    "workers/devflows_worker",
+    "mcp/devflows_mcp",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
