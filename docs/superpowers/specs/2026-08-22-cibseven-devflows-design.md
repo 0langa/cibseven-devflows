@@ -66,9 +66,12 @@ Console entry points: `devflows-worker` and `devflows-mcp`.
 
 `httpx`, `pyyaml`, `mcp`. Development only: `pytest`, `ruff`.
 
-The MCP server uses `mcp.server.fastmcp.FastMCP` from the official `mcp` package rather than the
-separate `fastmcp` distribution. That is one dependency fewer and it is the reference
-implementation of the protocol.
+The MCP server uses the official `mcp` package rather than the separate `fastmcp` distribution.
+That is one dependency fewer and it is the reference implementation of the protocol.
+
+Version 2.0 of that SDK renamed `FastMCP` to `MCPServer` and moved it from `mcp.server.fastmcp` to
+`mcp.server.mcpserver`; the decorator API is unchanged. This project uses the 2.0 name and pins
+`mcp>=2.0`, rather than pinning below 2 to keep a removed import path alive.
 
 Engine calls are tested with `httpx.MockTransport`, so no HTTP mocking library is needed.
 
