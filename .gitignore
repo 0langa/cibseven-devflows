@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Engine data and local config
+engine/data/
+*.local.json
+.env
+
+# Editors and OS
+.vscode/
+.idea/
+.vs/
+Thumbs.db
+desktop.ini
+.DS_Store
