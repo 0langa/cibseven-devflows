@@ -254,7 +254,7 @@ that volume the history disappears on every restart, and the history is the poin
 
 `engine/README.md` covers `up -d`, `down`, where the web apps and the REST API are, the `demo`
 login, and a note that the Docker CLI on this machine lives at
-`C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe` and may not be on
+`%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe` and may not be on
 `PATH`.
 
 ## Testing

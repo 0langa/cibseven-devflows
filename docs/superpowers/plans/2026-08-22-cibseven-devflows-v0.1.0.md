@@ -23,9 +23,7 @@
 - Ruff line length 100. Ruff rules `E`, `F`, `I`, `UP`, `B`.
 - Commit after every task. Ask the user before the first public push and before the real, non-dry-run release run. Nothing else needs permission.
 - On this machine the Docker CLI is not on `PATH`. It lives at
-  `C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe`.
-- uv cache belongs on the fast-primary devstorage drive:
-  `UV_CACHE_DIR=F:\agent-devstorage\shared-cache\cibseven-devflows\cache\uv`.
+  `%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe`.
 
 ## File Structure
 
@@ -2718,7 +2716,7 @@ Do not expose this port to a network you do not control.
 The Docker CLI is not on `PATH`. The full path is:
 
 ```
-C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe
+%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe
 ```
 
 Never force-kill Docker Desktop processes on this machine; quit through the tray icon or
@@ -2738,11 +2736,11 @@ Expected: PASS, 2 tests.
 Stop the container that is running today, then bring it up from the compose file:
 
 ```bash
-"C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe" rm -f cibseven
+"%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe" rm -f cibseven
 ```
 
 ```bash
-"C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml up -d
+"%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml up -d
 ```
 
 ```bash
@@ -3607,7 +3605,7 @@ takes a minute.
 - [ ] **Step 3: Run with the engine down to prove the skip works**
 
 ```bash
-"C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml stop
+"%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml stop
 ```
 
 ```bash
@@ -3617,7 +3615,7 @@ uv run pytest tests/integration -v
 Expected: `3 skipped`, no errors.
 
 ```bash
-"C:\Users\Julius\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml start
+"%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin\docker.exe" compose -f engine/docker-compose.yml start
 ```
 
 - [ ] **Step 4: Commit**
