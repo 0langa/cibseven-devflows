@@ -43,3 +43,6 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff.lint.isort]
+known-first-party = ["devflows_core", "devflows_worker", "devflows_mcp"]
