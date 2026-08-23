@@ -1,4 +1,4 @@
-"""The seven devflows tools as plain functions.
+"""The devflows tools as plain functions.
 
 Each one takes an engine client, returns a plain dictionary and never raises.
 The caller is a language model that has to explain what happened to a human, so
@@ -8,12 +8,20 @@ a readable 'error' string is worth more than a stack trace.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 from devflows_core.config import ConfigError, load_config
 from devflows_core.engine import PROCESS_KEY, EngineError
 from devflows_core.paths import BpmnNotFound, default_bpmn_path
+
+DECISION_KEY = "release-policy"
+DEFAULT_APPROVAL_TIMEOUT = "PT24H"
+
+# An unparseable duration would only fail later, inside the engine, as a job
+# that cannot be scheduled. Catching it here gives a readable answer instead.
+_ISO_DURATION = re.compile(r"^P(?!$)(\d+[YMWD])*(T(?!$)(\d+[HMS])*)?$")
 
 # The CIB seven web UI. The older webapps under /camunda/app/ still work in 2.2
 # but render a "deprecated and no longer supported" banner, so do not link there.
@@ -66,10 +74,16 @@ def start_release(
     repo_path: str,
     version: str,
     dry_run: bool = True,
+    approval_timeout: str = DEFAULT_APPROVAL_TIMEOUT,
 ) -> dict[str, Any]:
     """Start a release run. Defaults to a dry run, because that is the safe default."""
     if not version or not version.strip():
         return _failure("A version is required, for example '0.1.0'")
+
+    if not _ISO_DURATION.match(approval_timeout or ""):
+        return _failure(
+            f"approval_timeout must be an ISO 8601 duration such as PT24H, not {approval_timeout!r}"
+        )
 
     try:
         load_config(repo_path)
@@ -80,6 +94,7 @@ def start_release(
         "repo_path": str(repo_path),
         "version": version.strip(),
         "dry_run": bool(dry_run),
+        "approval_timeout": approval_timeout,
     }
     try:
         instance_id = client.start_process(PROCESS_KEY, variables)
@@ -92,6 +107,7 @@ def start_release(
         "dry_run": bool(dry_run),
         "version": version.strip(),
         "repo_path": str(repo_path),
+        "approval_timeout": approval_timeout,
         "instance_url": INSTANCE_URL.format(instance_id=instance_id),
     }
 
@@ -113,6 +129,7 @@ def get_run(client: Any, process_instance_id: str) -> dict[str, Any]:
             state = historic.get("state", "COMPLETED")
             activities = []
             tasks = []
+        incidents = client.list_incidents(process_instance_id)
     except EngineError as error:
         return _failure(str(error))
 
@@ -122,6 +139,9 @@ def get_run(client: Any, process_instance_id: str) -> dict[str, Any]:
         "state": state,
         "active_activities": activities,
         "open_tasks": tasks,
+        # A run that is not moving usually has an incident behind it, so say so
+        # here rather than making the caller go looking.
+        "incidents": incidents,
         "variables": variables,
         "gates": _decode_gate_report(variables.get("gates_report")),
     }
@@ -158,6 +178,116 @@ def approve_gate(
         return _failure(str(error))
 
     return {"ok": True, "task_id": task_id, "approved": bool(approve), "comment": comment or ""}
+
+
+def list_runs(client: Any, limit: int = 10) -> dict[str, Any]:
+    """The most recent release runs, newest first."""
+    try:
+        runs = client.list_historic_process_instances(PROCESS_KEY, limit)
+    except EngineError as error:
+        return _failure(str(error))
+    return {"ok": True, "runs": runs}
+
+
+def retry_run(client: Any, process_instance_id: str) -> dict[str, Any]:
+    """Give a stuck run another attempt.
+
+    An incident on an external task holds the task and its retry count at zero.
+    Setting the retries back above zero clears the incident and puts the task
+    back in the queue, which is what a person would do in Cockpit.
+    """
+    try:
+        incidents = client.list_incidents(process_instance_id)
+    except EngineError as error:
+        return _failure(str(error))
+
+    retried = []
+    for incident in incidents:
+        task_id = incident.get("configuration")
+        if incident.get("type") != "failedExternalTask" or not task_id:
+            continue
+        try:
+            client.set_external_task_retries(task_id, 1)
+        except EngineError as error:
+            return _failure(str(error))
+        retried.append(task_id)
+
+    if not retried:
+        return _failure(
+            f"Nothing to retry on {process_instance_id}: no failed external task incident"
+        )
+    return {"ok": True, "process_instance_id": process_instance_id, "retried_tasks": retried}
+
+
+def cancel_run(
+    client: Any,
+    process_instance_id: str,
+    reason: str = "cancelled through the devflows MCP server",
+) -> dict[str, Any]:
+    """Stop a running release. The reason is kept in the history."""
+    try:
+        client.delete_process_instance(process_instance_id, reason)
+    except EngineError as error:
+        return _failure(str(error))
+    return {"ok": True, "process_instance_id": process_instance_id, "reason": reason}
+
+
+def doctor(client: Any, repo_path: str | None = None) -> dict[str, Any]:
+    """Check everything a release needs, and say what is missing.
+
+    Every check reports rather than raises, because the point of this tool is
+    to answer "why will this not run" in one call.
+    """
+    checks: list[dict[str, Any]] = []
+
+    status = client.engine_status()
+    engine_detail = status["error"] or f"CIB seven {status['version']}"
+    _check(checks, "engine", status["reachable"], engine_detail)
+
+    definitions: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = []
+    if status["reachable"]:
+        try:
+            definitions = client.list_process_definitions()
+            decisions = client.list_decision_definitions()
+        except EngineError as error:
+            _check(checks, "deployments", False, str(error))
+
+    keys = {item.get("key") for item in definitions}
+    _check(
+        checks,
+        "process deployed",
+        PROCESS_KEY in keys,
+        f"{PROCESS_KEY} found" if PROCESS_KEY in keys else f"deploy {PROCESS_KEY} first",
+    )
+
+    decision_keys = {item.get("key") for item in decisions}
+    _check(
+        checks,
+        "decision deployed",
+        DECISION_KEY in decision_keys,
+        f"{DECISION_KEY} found"
+        if DECISION_KEY in decision_keys
+        else f"deploy {DECISION_KEY} first",
+    )
+
+    if repo_path:
+        config = list_gates(repo_path)
+        _check(
+            checks,
+            "devflows.yaml",
+            config["ok"],
+            config.get("error") or f"{len(config.get('gates', []))} gate(s)",
+        )
+
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "checks": checks,
+    }
+
+
+def _check(checks: list[dict[str, Any]], name: str, ok: bool, detail: str) -> None:
+    checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
 
 def _failure(message: str) -> dict[str, Any]:

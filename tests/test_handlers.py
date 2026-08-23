@@ -1,19 +1,28 @@
-"""The three external task handlers, with the shell runner replaced by a fake."""
+"""The external task handlers, with the shell runner replaced by a fake."""
 
 import json
+import shlex
+from pathlib import Path
 
 import pytest
 
 from devflows_core.steps import StepResult
 from devflows_worker.handlers import (
+    DEFAULT_APPROVAL_TIMEOUT,
     GATES_TOPIC,
     HANDLERS,
+    NOTES_TOPIC,
+    PUBLISH_FAILED,
     PUBLISH_TOPIC,
     TAG_TOPIC,
+    UNTAG_TOPIC,
+    BusinessError,
     HandlerError,
     handle_gates,
+    handle_notes,
     handle_publish,
     handle_tag,
+    handle_untag,
 )
 
 CONFIG = """
@@ -53,7 +62,13 @@ def fake_runner(results):
 
 
 def test_every_topic_has_a_handler():
-    assert set(HANDLERS) == {GATES_TOPIC, TAG_TOPIC, PUBLISH_TOPIC}
+    assert set(HANDLERS) == {
+        GATES_TOPIC,
+        NOTES_TOPIC,
+        TAG_TOPIC,
+        PUBLISH_TOPIC,
+        UNTAG_TOPIC,
+    }
 
 
 # ---- gates ---------------------------------------------------------------
@@ -192,6 +207,41 @@ def test_publish_fails_clearly_when_gh_is_not_authenticated(repo):
         )
 
 
+def test_a_failed_push_is_a_business_error_so_the_process_can_compensate(repo):
+    refused = StepResult(
+        command="git push", exit_code=1, output="remote rejected", duration_seconds=0.1
+    )
+    with pytest.raises(BusinessError) as raised:
+        handle_publish(
+            {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": False},
+            runner=fake_runner([0, refused]),
+        )
+    assert raised.value.code == PUBLISH_FAILED
+
+
+def test_a_failed_release_command_is_a_business_error(repo):
+    refused = StepResult(command="gh", exit_code=1, output="gh said no", duration_seconds=0.1)
+    with pytest.raises(BusinessError) as raised:
+        handle_publish(
+            {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": False},
+            runner=fake_runner([0, 0, refused]),
+        )
+    assert raised.value.code == PUBLISH_FAILED
+    assert "gh said no" in raised.value.message
+
+
+def test_a_missing_gh_login_stays_a_retryable_failure(repo):
+    # Logging in and trying again works, so this must not compensate the tag away.
+    not_logged_in = StepResult(
+        command="gh auth status", exit_code=1, output="not logged in", duration_seconds=0.1
+    )
+    with pytest.raises(HandlerError):
+        handle_publish(
+            {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": False},
+            runner=fake_runner([not_logged_in]),
+        )
+
+
 def test_publish_falls_back_to_the_tag_name_from_the_config(repo):
     created = StepResult(command="gh", exit_code=0, output="no url here", duration_seconds=0.1)
     runner = fake_runner([0, 0, created])
@@ -200,3 +250,220 @@ def test_publish_falls_back_to_the_tag_name_from_the_config(repo):
     )
     assert "git push origin v0.1.0" in runner.calls
     assert result["release_url"] == ""
+
+
+# ---- notes ---------------------------------------------------------------
+
+
+def step(output, exit_code=0):
+    """One canned result for fake_runner to replay."""
+    return StepResult(command="canned", exit_code=exit_code, output=output, duration_seconds=0.1)
+
+
+TAG_LIST = "git tag --list --sort=-v:refname"
+
+
+def test_the_notes_topic_is_registered():
+    assert HANDLERS[NOTES_TOPIC] is handle_notes
+
+
+def test_notes_come_from_claude_when_the_call_succeeds(repo):
+    runner = fake_runner([step("v0.1.0\nv0.0.9"), step("abc123 feat: a feature"), step("## Added")])
+    result = handle_notes({"repo_path": str(repo), "version": "0.2.0"}, runner=runner)
+    assert result["notes_source"] == "claude"
+    assert result["release_notes"] == "## Added"
+    assert result["previous_version"] == "v0.1.0"
+    assert result["release_kind"] == "minor"
+    assert runner.calls[0] == TAG_LIST
+    assert runner.calls[2].startswith("claude -p ")
+
+
+def test_the_prompt_is_quoted_so_a_commit_message_cannot_break_the_command(repo):
+    tricky = "abc123 fix: don't \"quote\" me; rm -rf /"
+    runner = fake_runner([step("v1.0.0"), step(tricky), step("notes")])
+    handle_notes({"repo_path": str(repo), "version": "1.0.1"}, runner=runner)
+    parts = shlex.split(runner.calls[2])
+    assert parts[:2] == ["claude", "-p"]
+    assert len(parts) == 3
+    assert tricky in parts[2]
+    assert "1.0.1" in parts[2]
+    assert "patch" in parts[2]
+
+
+def test_notes_fall_back_to_the_commit_list_when_claude_fails(repo):
+    runner = fake_runner(
+        [step("v0.1.0"), step("abc123 fix: a bug"), step("command not found", exit_code=127)]
+    )
+    result = handle_notes({"repo_path": str(repo), "version": "0.1.1"}, runner=runner)
+    assert result["notes_source"] == "git-log"
+    assert result["release_notes"] == "## Changes\n\n- abc123 fix: a bug"
+    assert result["release_kind"] == "patch"
+
+
+def test_notes_fall_back_when_claude_answers_with_nothing(repo):
+    runner = fake_runner([step("v0.1.0"), step("abc123 fix: a bug"), step("  \n ")])
+    result = handle_notes({"repo_path": str(repo), "version": "0.1.1"}, runner=runner)
+    assert result["notes_source"] == "git-log"
+    assert result["release_notes"] == "## Changes\n\n- abc123 fix: a bug"
+
+
+def test_a_repository_without_tags_is_a_major_release(repo):
+    runner = fake_runner([step("", exit_code=128), step("abc123 chore: first commit"), step("x")])
+    result = handle_notes({"repo_path": str(repo), "version": "0.1.0"}, runner=runner)
+    assert result["previous_version"] == ""
+    assert result["release_kind"] == "major"
+
+
+def test_an_empty_tag_list_counts_as_no_previous_release(repo):
+    runner = fake_runner([step("\n  \n"), step("abc123 chore: first commit"), step("x")])
+    result = handle_notes({"repo_path": str(repo), "version": "0.1.0"}, runner=runner)
+    assert result["previous_version"] == ""
+    assert result["release_kind"] == "major"
+
+
+def test_a_bumped_patch_number_is_a_patch_release(repo):
+    runner = fake_runner([step("v1.2.3"), step("abc123 fix: a bug"), step("x")])
+    result = handle_notes({"repo_path": str(repo), "version": "1.2.4"}, runner=runner)
+    assert result["release_kind"] == "patch"
+    assert result["previous_version"] == "v1.2.3"
+
+
+def test_the_commit_range_starts_at_the_previous_tag(repo):
+    runner = fake_runner([step("v1.2.3"), step("abc123 fix: a bug"), step("x")])
+    handle_notes({"repo_path": str(repo), "version": "1.2.4"}, runner=runner)
+    assert runner.calls[1] == "git log v1.2.3..HEAD --oneline --no-decorate"
+
+
+def test_without_a_tag_the_last_commits_are_listed_instead(repo):
+    runner = fake_runner([step("", exit_code=128), step("abc123 chore: first commit"), step("x")])
+    handle_notes({"repo_path": str(repo), "version": "0.1.0"}, runner=runner)
+    assert runner.calls[1] == "git log --oneline --no-decorate -n 50"
+
+
+def test_notes_survive_a_failing_git_log(repo):
+    runner = fake_runner(
+        [step("v1.2.3"), step("fatal: bad revision", exit_code=128), step("", exit_code=127)]
+    )
+    result = handle_notes({"repo_path": str(repo), "version": "1.2.4"}, runner=runner)
+    assert result["notes_source"] == "git-log"
+    assert result["release_notes"] == "Release v1.2.4."
+
+
+def test_notes_require_a_version(repo):
+    with pytest.raises(HandlerError, match="version"):
+        handle_notes({"repo_path": str(repo)}, runner=fake_runner([]))
+
+
+# ---- the approval timeout default ----------------------------------------
+
+
+def test_gates_default_the_approval_timeout_when_it_was_not_set(repo):
+    result = handle_gates({"repo_path": str(repo)}, runner=fake_runner([0, 0]))
+    assert result["approval_timeout"] == DEFAULT_APPROVAL_TIMEOUT
+
+
+def test_gates_keep_an_approval_timeout_that_was_set_at_start(repo):
+    result = handle_gates(
+        {"repo_path": str(repo), "approval_timeout": "PT2M"}, runner=fake_runner([0, 0])
+    )
+    assert result["approval_timeout"] == "PT2M"
+
+
+# ---- release notes reaching the publish command --------------------------
+
+
+NOTES_CONFIG = """
+gates:
+  - name: tests
+    run: pytest -q
+tag:
+  format: "v{version}"
+publish:
+  run: gh release create v{version} --notes-file {notes_file}
+"""
+
+
+@pytest.fixture()
+def notes_repo(tmp_path):
+    (tmp_path / "devflows.yaml").write_text(NOTES_CONFIG, encoding="utf-8")
+    return tmp_path
+
+
+def test_publish_writes_the_approved_notes_to_the_file_the_command_asks_for(notes_repo):
+    created = StepResult(command="gh", exit_code=0, output="https://x/y", duration_seconds=0.1)
+    runner = fake_runner([0, 0, created])
+    result = handle_publish(
+        {
+            "repo_path": str(notes_repo),
+            "version": "0.2.0",
+            "tag_name": "v0.2.0",
+            "dry_run": False,
+            "release_notes": "## Added\n- a thing",
+        },
+        runner=runner,
+    )
+    command = result["publish_command"]
+    assert "--notes-file" in command
+    assert "{notes_file}" not in command
+    path = Path(command.split("--notes-file ", 1)[1].strip())
+    assert path.read_text(encoding="utf-8").startswith("## Added")
+
+
+def test_publish_writes_a_placeholder_when_there_are_no_notes(notes_repo):
+    created = StepResult(command="gh", exit_code=0, output="https://x/y", duration_seconds=0.1)
+    result = handle_publish(
+        {"repo_path": str(notes_repo), "version": "0.2.0", "tag_name": "v0.2.0", "dry_run": False},
+        runner=fake_runner([0, 0, created]),
+    )
+    path = Path(result["publish_command"].split("--notes-file ", 1)[1].strip())
+    assert "Release v0.2.0." in path.read_text(encoding="utf-8")
+
+
+def test_a_publish_command_without_the_placeholder_writes_no_file(repo):
+    created = StepResult(command="gh", exit_code=0, output="https://x/y", duration_seconds=0.1)
+    result = handle_publish(
+        {
+            "repo_path": str(repo),
+            "version": "0.1.0",
+            "tag_name": "v0.1.0",
+            "dry_run": False,
+            "release_notes": "ignored",
+        },
+        runner=fake_runner([0, 0, created]),
+    )
+    assert result["publish_command"] == "gh release create v0.1.0 --generate-notes"
+
+
+# ---- undo tag ------------------------------------------------------------
+
+
+def test_untag_deletes_the_tag_locally_and_on_the_remote(repo):
+    runner = fake_runner([0, 0])
+    result = handle_untag(
+        {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": False},
+        runner=runner,
+    )
+    assert runner.calls == ["git tag -d v0.1.0", "git push origin :refs/tags/v0.1.0"]
+    assert result["tag_deleted"] is True
+
+
+def test_untag_tolerates_a_tag_that_was_never_pushed(repo):
+    not_there = StepResult(
+        command="git push", exit_code=1, output="remote ref does not exist", duration_seconds=0.1
+    )
+    result = handle_untag(
+        {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": False},
+        runner=fake_runner([0, not_there]),
+    )
+    assert result["tag_deleted"] is True
+    assert "remote: not deleted" in result["untag_detail"]
+
+
+def test_untag_deletes_nothing_in_a_dry_run(repo):
+    runner = fake_runner([])
+    result = handle_untag(
+        {"repo_path": str(repo), "version": "0.1.0", "tag_name": "v0.1.0", "dry_run": True},
+        runner=runner,
+    )
+    assert runner.calls == []
+    assert result["tag_deleted"] is False

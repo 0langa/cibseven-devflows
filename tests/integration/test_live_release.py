@@ -146,3 +146,120 @@ def test_failing_gates_end_the_process_without_asking_a_human(deployed, tmp_path
     result = client.get_historic_variables(instance_id)
     assert result["gates_passed"] is False
     assert "impossible" in result["gates_report"]
+
+
+# ---- v0.2.0 paths --------------------------------------------------------
+
+
+def make_repo(tmp_path, publish="echo published https://example.invalid/r", tag=None):
+    """A throwaway git repository the process can safely tag and untag."""
+    config = "gates:\n  - name: trivial\n    run: echo fine\n"
+    config += 'tag:\n  format: "v{version}"\n'
+    config += f"publish:\n  run: {publish}\n"
+    (tmp_path / "devflows.yaml").write_text(config, encoding="utf-8")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "devflows integration test")
+    git("commit", "-q", "--allow-empty", "-m", "first commit")
+    if tag:
+        git("tag", tag)
+    return tmp_path
+
+
+def tags_in(repo):
+    listed = subprocess.run(
+        ["git", "tag", "--list"], cwd=repo, capture_output=True, text=True
+    )
+    return [line.strip() for line in listed.stdout.splitlines() if line.strip()]
+
+
+def test_a_patch_release_is_approved_by_policy_and_never_asks_a_human(deployed, tmp_path):
+    """The DMN table decides. A patch with green gates does not stop."""
+    repo = make_repo(tmp_path, tag="v1.2.3")
+    client = deployed
+    instance_id = client.start_process(
+        PROCESS_KEY,
+        {"repo_path": str(repo), "version": "1.2.4", "dry_run": True},
+    )
+    advance(client, finished(client, instance_id))
+
+    result = client.get_historic_variables(instance_id)
+    assert result["release_kind"] == "patch"
+    assert result["previous_version"] == "v1.2.3"
+    # No human was asked, so nobody set `approved`.
+    assert "approved" not in result
+    assert result["tag_name"] == "v1.2.4"
+    assert client.get_historic_process_instance(instance_id)["state"] == "COMPLETED"
+
+
+def test_a_minor_release_stops_for_a_human(deployed, tmp_path):
+    repo = make_repo(tmp_path, tag="v1.2.3")
+    client = deployed
+    instance_id = client.start_process(
+        PROCESS_KEY,
+        {"repo_path": str(repo), "version": "1.3.0", "dry_run": True},
+    )
+    advance(client, waiting_for_a_human(client, instance_id))
+
+    tasks = client.list_tasks(instance_id)
+    assert len(tasks) == 1, "a minor release must not be auto-approved"
+
+    variables = client.get_variables(instance_id)
+    assert variables["release_kind"] == "minor"
+    # The notes are drafted before the human sees them.
+    assert variables["release_notes"].strip()
+    assert variables["notes_source"] in {"claude", "git-log"}
+
+    client.complete_task(tasks[0]["id"], {"approved": False, "approval_comment": "no"})
+    advance(client, finished(client, instance_id))
+
+
+def test_the_approval_timer_ends_a_forgotten_release(deployed, tmp_path):
+    """Nobody answers, so the process rejects itself instead of hanging."""
+    repo = make_repo(tmp_path, tag="v1.2.3")
+    client = deployed
+    instance_id = client.start_process(
+        PROCESS_KEY,
+        {
+            "repo_path": str(repo),
+            "version": "1.3.0",
+            "dry_run": True,
+            "approval_timeout": "PT5S",
+        },
+    )
+    advance(client, waiting_for_a_human(client, instance_id))
+    assert client.list_tasks(instance_id), "the run should be waiting for a human"
+
+    # Do not answer. The boundary timer has to end it.
+    advance(client, finished(client, instance_id), deadline_seconds=120)
+
+    assert client.list_tasks(instance_id) == []
+    assert client.get_historic_process_instance(instance_id)["state"] == "COMPLETED"
+
+
+def test_a_failed_publish_compensates_and_removes_the_tag(deployed, tmp_path):
+    """The whole point of compensation: no half-finished release is left behind."""
+    repo = make_repo(tmp_path, tag="v1.2.3")
+    client = deployed
+    # dry_run is false, so the tag is real. There is no remote, so pushing it
+    # fails, which is a BusinessError and therefore a BPMN error.
+    instance_id = client.start_process(
+        PROCESS_KEY,
+        {"repo_path": str(repo), "version": "1.2.4", "dry_run": False},
+    )
+    advance(client, finished(client, instance_id))
+
+    result = client.get_historic_variables(instance_id)
+    assert result["tag_created"] is True, "the tag step has to run before compensation matters"
+    assert result["tag_deleted"] is True, "compensation must delete the tag it created"
+
+    # And it is really gone from the repository, not just claimed to be.
+    assert "v1.2.4" not in tags_in(repo)
+    assert "v1.2.3" in tags_in(repo), "compensation must not touch older tags"
+
+    # A caught BPMN error is not an incident: nothing is broken.
+    assert client.list_incidents(instance_id) == []

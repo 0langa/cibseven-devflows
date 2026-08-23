@@ -13,44 +13,47 @@ Run these in order. The whole block takes about three minutes, most of it waitin
 docker compose -f engine/docker-compose.yml up -d
 ```
 
-Wait until this answers `{"version":"2.2.0"}`. It takes about 40 seconds on a cold start.
-
-```bash
-curl -s http://localhost:8080/engine-rest/version
-```
-
 **2. Install the project.**
 
 ```bash
 uv sync
 ```
 
-**3. Deploy the process.**
+**3. Deploy the process and the decision table.**
 
 ```bash
-curl -s -X POST http://localhost:8080/engine-rest/deployment/create -F "deployment-name=cibseven-devflows" -F "release.bpmn=@processes/release.bpmn"
+curl -s -X POST http://localhost:8080/engine-rest/deployment/create -F "deployment-name=cibseven-devflows" -F "release.bpmn=@processes/release.bpmn" -F "release-policy.dmn=@processes/release-policy.dmn"
 ```
 
-**4. Start the worker in its own terminal and leave it visible.**
+**4. Check everything in one command.**
+
+```bash
+uv run devflows-doctor
+```
+
+Every line must say `ok`. If one does not, it tells you what to do about it. This is also a good
+opening move in front of an audience: it shows the whole setup in seven lines.
+
+**5. Start the worker in its own terminal and leave it visible.**
 
 ```bash
 uv run devflows-worker
 ```
 
-It should print `Waiting for work on: devflows.gates, devflows.tag, devflows.publish`. Put this
-terminal where the audience can see it; it is the part that shows the work actually happening.
+It prints `Waiting for work on: devflows.gates, devflows.notes, devflows.tag, devflows.publish,
+devflows.untag`. Put this terminal where the audience can see it; it is the part that shows the
+work actually happening.
 
-**5. Open two browser tabs**, both logged in at <http://localhost:8080/webapp/> as `demo` / `demo`:
+**6. Open two browser tabs**, both logged in at <http://localhost:8080/webapp/> as `demo` / `demo`:
 
 - **Processes**: <http://localhost:8080/webapp/#/seven/auth/processes/list> , on `Release ritual`
-- **Tasks**: <http://localhost:8080/webapp/#/seven/auth/tasks> , with the filter **My Group Tasks** selected
+- **Tasks**: <http://localhost:8080/webapp/#/seven/auth/tasks> , filter **My Group Tasks**
 
-Use this front-end, not the older webapps under `/camunda/app/`. CIB seven 2.2 still serves
-those, but it shows a red banner on every page saying they are deprecated and no longer
-supported. Demonstrating the deprecated UI to someone who works on CIB seven would be a poor
-look.
+Use this front-end, not the older webapps under `/camunda/app/`. CIB seven 2.2 still serves those,
+but every page there carries a red banner saying the interface is deprecated and no longer
+supported.
 
-**6. Have Claude Code open** in this repository, with the plugin loaded.
+**7. Have Claude Code open** in this repository, with the plugin loaded.
 
 ## The script
 
@@ -63,118 +66,153 @@ look.
 > decision in the middle. That is exactly the shape a process engine is built for, so I put it in
 > one.
 
-### 0:45 – 1:30 · The process
+### 0:45 – 1:45 · The process
 
 Open `Release ritual` under **Processes** and show the diagram.
 
-> Three service tasks, one user task, two gateways. The service tasks are **external tasks**: the
-> engine does not run anything itself, it publishes work on a topic and a worker on my machine
-> polls for it. That is why it is safe to let a process engine drive a developer machine.
+> Three kinds of box. The ones with a gear are **external tasks**: the engine does not run anything
+> itself, it publishes work on a topic and a worker on my machine polls for it. That is why it is
+> safe to let a process engine drive a developer machine.
 >
-> The middle box is a **user task**. The process stops there and waits for a person. It waits
-> across a restart, because the state is in the database, not in a script.
+> The one in the middle is a **user task**. The process stops there and waits for a person. It waits
+> across a restart, because the state is in the database, not in a script. And it has a timer on it,
+> so a release nobody answers rejects itself instead of hanging around forever.
+>
+> The one before it is a **business rule task**. It calls a DMN decision table that decides whether
+> a human is needed at all.
 
-### 1:30 – 2:45 · Start a dry run from Claude Code
+Then point at the bottom right.
+
+> And this is the part I like most. If publishing fails after the tag was created, that error
+> boundary event throws **compensation**, which runs the undo handler and deletes the tag. A release
+> that goes wrong does not leave half of itself behind.
+
+### 1:45 – 2:30 · The policy is data, not code
+
+Open `processes/release-policy.dmn` in Camunda Modeler, or just show the table in the README.
+
+> A patch release with green gates ships without asking anyone. Anything bigger asks me. That rule
+> is a DMN table, not an `if` in my Python. If the team decides tomorrow that minor releases can go
+> out automatically too, someone edits one cell and redeploys. No code review, no deployment of my
+> worker.
+
+### 2:30 – 3:30 · Start a release from Claude Code
 
 In Claude Code:
 
 ```
-/devflows:release 0.2.0
+/devflows:release 0.3.0
 ```
 
-Claude checks the engine, lists the gates and starts a run with `dry_run=true`.
+Claude runs `doctor`, lists the gates, and starts a run with `dry_run=true`.
 
 Point at the worker terminal while it works.
 
-> There it is picking up the gates topic. It is running this repository's real test suite and its
-> real linter, from `devflows.yaml`. The engine is just watching.
+> There it is running this repository's real test suite and its real linter, from `devflows.yaml`.
+> Then it drafts the release notes: it collects the commits since the last tag and asks the local
+> Claude CLI to write them. The engine is just watching.
 
 Switch to the process view and refresh.
 
-> And the token has moved to the approval task. The gate report is already a process variable, so
-> it is in the history for good.
+> The token stopped at the approval, because 0.3.0 is a minor release and the decision table says a
+> minor release needs a person.
 
-### 2:45 – 4:00 · Approve as a human
+### 3:30 – 4:30 · Approve as a human
 
-Switch to **Tasks**, filter **My Group Tasks**.
+Switch to **Tasks**, **My Group Tasks**, and claim the task.
 
 > Here is the same task from the other side. It is assigned to the `camunda-admin` group, not to a
 > person, so anyone in that group can pick it up.
+>
+> The form has the gate results, and the release notes the AI drafted. I can edit them right here,
+> and what I approve is what gets published. That is the shape I want for an AI in a workflow: it
+> does the tedious part, a person owns the result, and the process is what enforces that. Claude can
+> start this release and watch it, but it cannot approve it, because approving is a step in the
+> process rather than a rule in a prompt.
 
-Claim it. Show the form and the gate report. Tick **Approve this release**, add a comment, submit.
+Tick **Approve this release**, submit, and point back at the worker terminal as the tag and publish
+steps run.
 
-> That is the point of the whole project. Claude can start the release, watch it and report on it,
-> but it cannot skip this, because this is a step in the process, not a rule in a prompt. And
-> whoever approved it is in the audit trail.
-
-Point back at the worker terminal as the tag and publish steps run.
-
-### 4:00 – 5:00 · The result
+### 4:30 – 5:00 · The result
 
 Show the completed instance under **Processes**, in the history view.
 
-> Completed. Every variable is here: which gates ran, what they printed, who approved and what they
-> said, the tag, the release URL.
+> Completed. Every variable is here: which gates ran and what they printed, what the policy decided
+> and why, who approved and what they changed, the tag, the release URL.
 
-Then show the real thing:
+Then:
 
-> And this one is not a demo. Version 0.1.0 of this project was released by this process, running
-> on this repository. The tag and the GitHub Release were created by the `tag` and `publish` steps.
+> And this is not a demo repository. Version 0.1.0 of this project was released by this exact
+> process running on itself, and so was 0.2.0.
 
-Open <https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0>.
+Open <https://github.com/0langa/cibseven-devflows/releases>.
 
-### The v0.1.0 release was cut by this process
+## Optional: show the timer or the compensation
 
-For the record, so the claim can be checked rather than taken on trust:
+Both are quick and both land well if there is time or a question.
 
-| | |
-| --- | --- |
-| Process instance | `0e656a8f-9e47-11f1-be39-22fc550e6cab` |
-| Started | 2026-08-22, `dry_run` false, after a dry run of the same version |
-| Approved by | `demo`, in the web UI, comment "Good release" |
-| Tag | `v0.1.0`, created by the `devflows.tag` step |
-| Release | <https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0>, created by `devflows.publish` |
+**The timer.** Start a run with a two-minute deadline and simply do not answer it:
 
-The instance is in the engine history as long as its 30-day `historyTimeToLive` allows. If it has
-expired by the time you read this, the numbers above are what it recorded.
+```bash
+uv run pytest tests/integration/test_live_release.py -k timer -q
+```
+
+Or start one by hand with `approval_timeout` set to `PT2M`, then watch the instance end by itself.
+
+**Compensation.** The integration suite proves it against the real engine, on a throwaway
+repository: the tag is created, the push fails because there is no remote, and the tag is gone
+afterwards.
+
+```bash
+uv run pytest tests/integration/test_live_release.py -k compensat -q
+```
 
 ## Talking points
 
 **CIB seven is a Camunda 7 fork.** It is a maintained open-source continuation of Camunda 7: same
-engine, same `/engine-rest` API, same web apps. Everything in this
-repository is standard Camunda 7 BPMN with the `camunda` extension namespace, and it opens
-unchanged in Camunda Modeler 5.x as a Camunda 7 diagram. Nothing here is a special case.
+engine, same `/engine-rest` API, same web apps. Everything in this repository is standard Camunda 7
+BPMN and DMN with the `camunda` extension namespace, and it opens unchanged in Camunda Modeler 5.x
+as Camunda 7 files. Nothing here is a special case.
 
 **The external task pattern.** The engine holds state and publishes work on topics. Workers call
-`fetchAndLock`, do the work wherever they are, and call `complete` or `failure`. The engine never
-needs credentials for my machine, my machine never needs to be reachable from the engine, and a
-worker crash becomes a visible incident instead of a lost step. This project uses plain HTTP with
-`httpx` rather than a client library, so the pattern is visible in about eighty lines of code.
+`fetchAndLock`, do the work wherever they are, and call `complete`, `failure` or `bpmnError`. The
+engine never needs credentials for my machine, my machine never needs to be reachable from the
+engine, and a worker crash becomes a visible incident instead of a lost step. This project uses
+plain HTTP with `httpx` rather than a client library, so the pattern is visible in about eighty
+lines of code.
+
+**Failure versus error.** These are not the same thing and the engine treats them differently. A
+network blip is a *failure*: the worker reports it with retries left and a backoff, and only an
+exhausted retry count raises an incident. A publish that was refused is a *BPMN error*: it will not
+work next time, so the diagram catches it and compensates. Getting that distinction right is most of
+what makes a workflow survivable in production.
 
 **Human in the loop.** The approval is a real BPMN user task with a generated form. It is durable,
-it is auditable, and it can be answered from two places: the Tasklist web UI, or the `approve_gate`
-MCP tool. Same task, same variables, either way.
+it is auditable, and it can be answered from two places: the web UI, or the `approve_gate` MCP tool.
+Same task, same variables, either way.
 
 **How this relates to CIB seven 2.2.** That release ships an AI agent connector and MCP support:
-the container even has `AI_AGENT_ENABLED=true` by default, so a process can call out to an AI
-agent as a step. This project comes at the same problem from the opposite side: instead of the
-process calling an AI, the AI drives the process, and the process is what keeps it honest. The two
-directions compose — a future flow could have an agent draft release notes as a step inside the
-same process that stops to ask me before publishing them.
+the container even has `AI_AGENT_ENABLED=true` by default, so a process can call out to an AI agent
+as a step. This project does both halves. The AI drives the process from outside over MCP, and the
+process calls an AI from inside for the release notes — with a human between that draft and anything
+public.
 
-**Why not a shell script.** A script has no memory, no history and nowhere to wait. Everything this
-project gets for free — durable waiting, an audit trail, a web UI for the human step, retries and
-incidents when a step fails — comes from putting the process in an engine instead of in a file.
+**Why not a shell script.** A script has no memory, no history and nowhere to wait. Durable waiting,
+an audit trail, a web UI for the human step, a decision table anyone can edit, retries, incidents,
+and compensation that undoes work: all of that comes from putting the process in an engine instead
+of in a file.
 
 ## If something goes wrong
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| Anything at all | Unknown | `uv run devflows-doctor` first; it names the problem |
 | A run starts but nothing happens | The worker is not running | `uv run devflows-worker` in a second terminal |
-| `start_release` fails with a connection error | The engine is not up yet | `docker compose -f engine/docker-compose.yml up -d`, then wait for `/engine-rest/version` |
-| `start_release` fails saying the process is unknown | The process is not deployed | Call the `deploy_process` MCP tool, or the curl command above |
-| The task does not appear | Wrong filter | Select **My Group Tasks**, not **My Tasks**; the task belongs to the group until you claim it |
-| The engine crashes on start with `AccessDeniedException` | The `cibseven-init` service did not run | Use `docker compose up -d`, not `docker run`; see [engine/README.md](../engine/README.md) |
+| The run finished without asking me | The policy auto-approved it | Expected for a patch release; `policy_reason` says so |
+| The task never appeared and the run ended | The approval timer fired | Start again with a longer `approval_timeout` |
+| A run is stuck | An incident | `get_run` reports it; fix the cause, then `retry_run` |
+| The task does not appear | Wrong filter | Select **My Group Tasks**, not **My Tasks** |
+| The engine crashes on start with `AccessDeniedException` | The `cibseven-init` service did not run | Use `docker compose up -d`; see [engine/README.md](../engine/README.md) |
 
 ## Reset between demos
 
@@ -189,5 +227,15 @@ docker compose -f engine/docker-compose.yml down -v
 docker compose -f engine/docker-compose.yml up -d
 ```
 
-Then deploy the process again. A dry run never creates a tag, so nothing has to be cleaned up in
-the repository itself.
+Then deploy the process and the decision again. A dry run never creates a tag, so nothing has to be
+cleaned up in the repository itself.
+
+## The releases this process cut
+
+For the record, so the claim can be checked rather than taken on trust.
+
+| Version | Process instance | Notes |
+| --- | --- | --- |
+| v0.1.0 | `0e656a8f-9e47-11f1-be39-22fc550e6cab` | Approved by `demo` in the web UI, comment "Good release" |
+
+Each instance stays in the engine history for as long as its 30-day `historyTimeToLive` allows.

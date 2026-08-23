@@ -14,6 +14,8 @@ def test_this_repository_has_a_valid_devflows_config():
     assert [gate.name for gate in config.gates] == ["tests", "lint"]
     assert config.tag.format == "v{version}"
     assert "gh release create" in config.publish.run
+    # The approved notes, not GitHub's generated ones, become the release body.
+    assert "{notes_file}" in config.publish.run
 
 
 def test_the_compose_file_pins_the_image_and_keeps_the_database():

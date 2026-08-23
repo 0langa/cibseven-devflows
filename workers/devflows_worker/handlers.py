@@ -10,25 +10,60 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from devflows_core.config import ConfigError, DevflowsConfig, load_config
 from devflows_core.steps import StepResult, run_step
+from devflows_core.versions import classify_release
 
 GATES_TOPIC = "devflows.gates"
+NOTES_TOPIC = "devflows.notes"
 TAG_TOPIC = "devflows.tag"
 PUBLISH_TOPIC = "devflows.publish"
+UNTAG_TOPIC = "devflows.untag"
+
+# Raised as a BPMN error so the process can compensate rather than sit on an
+# incident. The code has to match the errorCode in processes/release.bpmn.
+PUBLISH_FAILED = "PUBLISH_FAILED"
+
+DEFAULT_APPROVAL_TIMEOUT = "PT24H"
+
+NOTES_TIMEOUT_SECONDS = 120
+COMMIT_LOG_LIMIT = 50
 
 _URL_PATTERN = re.compile(r"https://\S+")
 
 
 class HandlerError(Exception):
-    """A handler could not do its job. The message goes back to the engine."""
+    """The work failed, but trying again might succeed.
+
+    Think of a network blip, a command that could not start, or gh not being
+    logged in. The worker reports this to the engine as an external task
+    failure with retries left, so the engine hands the task back after a delay.
+    """
 
     def __init__(self, message: str, details: str = "") -> None:
         super().__init__(message)
+        self.message = message
+        self.details = details
+
+
+class BusinessError(Exception):
+    """The work will not succeed, and the process should decide what to do.
+
+    This is not a broken worker, so it is not an incident. The worker raises it
+    to the engine as a BPMN error, which an error boundary event catches. The
+    publish step uses it so that a release that cannot be published compensates
+    and removes its own tag.
+    """
+
+    def __init__(self, code: str, message: str, details: str = "") -> None:
+        super().__init__(message)
+        self.code = code
         self.message = message
         self.details = details
 
@@ -63,6 +98,41 @@ def handle_gates(
     return {
         "gates_passed": passed,
         "gates_report": json.dumps(report, indent=2),
+        # The approval timer needs this variable to exist. Defaulting it here
+        # means a run started with plain curl still gets a timer.
+        "approval_timeout": variables.get("approval_timeout") or DEFAULT_APPROVAL_TIMEOUT,
+    }
+
+
+def handle_notes(
+    variables: dict[str, Any],
+    *,
+    runner: Callable[..., StepResult] = run_step,
+) -> dict[str, Any]:
+    """Draft the release notes and say how big this release is.
+
+    Drafting is best effort on purpose: a missing or unhappy claude CLI must
+    never fail a release, so every failure here lands in the commit list
+    fallback instead of an exception.
+    """
+    repo, config = _repo_and_config(variables)
+    version = _required(variables, "version")
+
+    previous_version = _newest_tag(repo, runner)
+    release_kind = classify_release(previous_version, version)
+    commits = _commits_since(repo, previous_version, runner)
+
+    notes = _draft_notes_with_claude(repo, version, release_kind, commits, runner)
+    source = "claude"
+    if not notes:
+        notes = _notes_from_commits(config.tag.format.format(version=version), commits)
+        source = "git-log"
+
+    return {
+        "release_notes": notes,
+        "notes_source": source,
+        "previous_version": previous_version or "",
+        "release_kind": release_kind,
     }
 
 
@@ -93,12 +163,20 @@ def handle_publish(
     *,
     runner: Callable[..., StepResult] = run_step,
 ) -> dict[str, Any]:
-    """Push the tag and create the GitHub Release."""
+    """Push the tag and create the GitHub Release.
+
+    The two failure modes are deliberately different. A missing gh login is a
+    HandlerError, because logging in and retrying works. A push or a release
+    that the tools reject is a BusinessError, because retrying will not help;
+    the process catches it and compensates by removing the tag.
+    """
     repo, config = _repo_and_config(variables)
     version = _required(variables, "version")
     dry_run = bool(variables.get("dry_run", False))
     tag_name = variables.get("tag_name") or config.tag.format.format(version=version)
-    publish_command = config.publish.run.format(version=version)
+
+    notes_file = _notes_file(config.publish.run, variables, tag_name)
+    publish_command = config.publish.run.format(version=version, notes_file=notes_file or "")
 
     if dry_run:
         return {
@@ -117,11 +195,13 @@ def handle_publish(
 
     push = runner(f"git push origin {tag_name}", cwd=repo)
     if not push.ok:
-        raise HandlerError(f"Could not push tag {tag_name}: {push.output}", push.output)
+        raise BusinessError(
+            PUBLISH_FAILED, f"Could not push tag {tag_name}: {push.output}", push.output
+        )
 
     release = runner(publish_command, cwd=repo)
     if not release.ok:
-        raise HandlerError(f"Publishing failed: {release.output}", release.output)
+        raise BusinessError(PUBLISH_FAILED, f"Publishing failed: {release.output}", release.output)
 
     match = _URL_PATTERN.search(release.output)
     return {
@@ -132,11 +212,127 @@ def handle_publish(
     }
 
 
+def handle_untag(
+    variables: dict[str, Any],
+    *,
+    runner: Callable[..., StepResult] = run_step,
+) -> dict[str, Any]:
+    """Undo the tag step. Only ever reached through BPMN compensation.
+
+    A release that could not be published must not leave a tag behind, locally
+    or on the remote. Neither delete is allowed to fail the compensation: if the
+    tag was never pushed, deleting it remotely fails, and that is fine.
+    """
+    repo, config = _repo_and_config(variables)
+    version = _required(variables, "version")
+    tag_name = variables.get("tag_name") or config.tag.format.format(version=version)
+    dry_run = bool(variables.get("dry_run", False))
+
+    if dry_run:
+        return {"tag_deleted": False, "untag_detail": f"(dry run) would delete {tag_name}"}
+
+    local = runner(f"git tag -d {tag_name}", cwd=repo)
+    remote = runner(f"git push origin :refs/tags/{tag_name}", cwd=repo)
+
+    detail = f"local: {'deleted' if local.ok else 'not deleted'}, "
+    detail += f"remote: {'deleted' if remote.ok else 'not deleted'}"
+    return {"tag_deleted": local.ok, "untag_detail": detail}
+
+
 HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     GATES_TOPIC: handle_gates,
+    NOTES_TOPIC: handle_notes,
     TAG_TOPIC: handle_tag,
     PUBLISH_TOPIC: handle_publish,
+    UNTAG_TOPIC: handle_untag,
 }
+
+
+def _newest_tag(repo: Path, runner: Callable[..., StepResult]) -> str | None:
+    """The newest existing tag, or None. A repository without tags is normal."""
+    result = runner("git tag --list --sort=-v:refname", cwd=repo)
+    if not result.ok:
+        return None
+    for line in result.output.splitlines():
+        if line.strip():
+            return line.strip()
+    return None
+
+
+def _commits_since(
+    repo: Path,
+    previous_version: str | None,
+    runner: Callable[..., StepResult],
+) -> list[str]:
+    """One line per commit that belongs to this release."""
+    if previous_version:
+        command = f"git log {previous_version}..HEAD --oneline --no-decorate"
+    else:
+        command = f"git log --oneline --no-decorate -n {COMMIT_LOG_LIMIT}"
+
+    result = runner(command, cwd=repo)
+    if not result.ok:
+        return []
+    return [line.strip() for line in result.output.splitlines() if line.strip()]
+
+
+def _draft_notes_with_claude(
+    repo: Path,
+    version: str,
+    release_kind: str,
+    commits: list[str],
+    runner: Callable[..., StepResult],
+) -> str:
+    """Ask the local claude CLI for notes, or return "" if that did not work."""
+    prompt = _notes_prompt(version, release_kind, commits)
+    # Commit messages are arbitrary text from the repository, so the prompt is
+    # quoted as a single argument instead of being pasted into the command.
+    command = f"claude -p {shlex.quote(prompt)}"
+    try:
+        result = runner(command, cwd=repo, timeout=NOTES_TIMEOUT_SECONDS)
+    except Exception:
+        # Whatever went wrong, notes are not worth failing a release over.
+        return ""
+    return result.output.strip() if result.ok else ""
+
+
+def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:
+    """The instruction sent to the claude CLI."""
+    listing = "\n".join(f"- {commit}" for commit in commits) or "- (no commits found)"
+    return (
+        f"Write the release notes for version {version} of this repository. "
+        f"Compared with the previous release this is a {release_kind} release.\n\n"
+        "Keep it short, use markdown, group the entries by kind of change, and "
+        "answer with the notes only: no preamble, no closing remark.\n\n"
+        f"Commits in this release:\n{listing}\n"
+    )
+
+
+def _notes_from_commits(tag_name: str, commits: list[str]) -> str:
+    """The fallback notes: the commit list, or a single line when there is none."""
+    if not commits:
+        return f"Release {tag_name}."
+    bullets = "\n".join(f"- {commit}" for commit in commits)
+    return f"## Changes\n\n{bullets}"
+
+
+def _notes_file(publish_command: str, variables: dict[str, Any], tag_name: str) -> str | None:
+    """Write the approved release notes to a file, if the command asks for one.
+
+    Only repositories whose publish command contains {notes_file} pay for this.
+    The file is left on disk for the command to read; the operating system
+    cleans up its own temporary directory.
+    """
+    if "{notes_file}" not in publish_command:
+        return None
+
+    notes = str(variables.get("release_notes") or "").strip() or f"Release {tag_name}."
+    handle = tempfile.NamedTemporaryFile(
+        "w", suffix=".md", prefix="devflows-notes-", delete=False, encoding="utf-8"
+    )
+    with handle as target:
+        target.write(notes + "\n")
+    return handle.name
 
 
 def _repo_and_config(variables: dict[str, Any]) -> tuple[Path, DevflowsConfig]:

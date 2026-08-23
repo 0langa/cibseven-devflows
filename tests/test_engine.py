@@ -242,3 +242,130 @@ def test_the_environment_variable_sets_the_base_url(monkeypatch):
     monkeypatch.setenv("DEVFLOWS_ENGINE_URL", "http://example.invalid:9000/engine-rest/")
     client = EngineClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[])))
     assert client.base_url == "http://example.invalid:9000/engine-rest"
+
+
+# ---- v0.2.0 additions ----------------------------------------------------
+
+
+def test_list_historic_process_instances_asks_for_the_newest_first():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "id": "pi-1",
+                    "state": "COMPLETED",
+                    "startTime": "2026-08-22T10:00:00.000+0000",
+                    "endTime": "2026-08-22T10:01:00.000+0000",
+                }
+            ],
+        )
+
+    runs = client_for(handler).list_historic_process_instances("devflows-release", limit=5)
+    assert seen["params"]["sortBy"] == "startTime"
+    assert seen["params"]["sortOrder"] == "desc"
+    assert seen["params"]["maxResults"] == "5"
+    assert runs == [
+        {
+            "process_instance_id": "pi-1",
+            "state": "COMPLETED",
+            "start_time": "2026-08-22T10:00:00.000+0000",
+            "end_time": "2026-08-22T10:01:00.000+0000",
+        }
+    ]
+
+
+def test_list_incidents_returns_a_small_summary():
+    payload = [
+        {
+            "id": "inc-1",
+            "incidentType": "failedExternalTask",
+            "activityId": "publish_release",
+            "incidentMessage": "gh exploded",
+            "configuration": "et-9",
+            "processInstanceId": "pi-1",
+        }
+    ]
+    incidents = client_for(lambda r: httpx.Response(200, json=payload)).list_incidents("pi-1")
+    assert incidents == [
+        {
+            "id": "inc-1",
+            "type": "failedExternalTask",
+            "activity_id": "publish_release",
+            "message": "gh exploded",
+            "configuration": "et-9",
+            "process_instance_id": "pi-1",
+        }
+    ]
+
+
+def test_delete_process_instance_records_the_reason():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(204)
+
+    client_for(handler).delete_process_instance("pi-1", "cancelled from the MCP server")
+    assert seen["method"] == "DELETE"
+    assert seen["path"].endswith("/process-instance/pi-1")
+    assert seen["params"]["reason"] == "cancelled from the MCP server"
+
+
+def test_bpmn_error_sends_the_error_code():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(204)
+
+    client_for(handler).bpmn_error_external_task(
+        "et-1", "worker-1", "PUBLISH_FAILED", "gh said no", {"release_url": ""}
+    )
+    assert seen["path"].endswith("/external-task/et-1/bpmnError")
+    assert seen["body"]["errorCode"] == "PUBLISH_FAILED"
+    assert seen["body"]["errorMessage"] == "gh said no"
+    assert seen["body"]["variables"]["release_url"] == {"value": "", "type": "String"}
+
+
+def test_bpmn_error_works_without_variables():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(204)
+
+    client_for(handler).bpmn_error_external_task("et-1", "worker-1", "PUBLISH_FAILED", "no")
+    assert seen["body"]["variables"] == {}
+
+
+def test_set_external_task_retries_uses_put():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(204)
+
+    client_for(handler).set_external_task_retries("et-1", 3)
+    assert seen["method"] == "PUT"
+    assert seen["path"].endswith("/external-task/et-1/retries")
+    assert seen["body"] == {"retries": 3}
+
+
+def test_list_decision_definitions_returns_a_small_summary():
+    summary = {
+        "key": "release-policy",
+        "id": "release-policy:1:a",
+        "version": 1,
+        "name": "Release policy",
+    }
+    client = client_for(lambda r: httpx.Response(200, json=[summary]))
+    assert client.list_decision_definitions() == [summary]

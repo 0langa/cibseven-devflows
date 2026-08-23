@@ -12,6 +12,10 @@ EXPECTED_TOOLS = {
     "get_run",
     "list_gates",
     "approve_gate",
+    "list_runs",
+    "retry_run",
+    "cancel_run",
+    "doctor",
 }
 
 
@@ -19,7 +23,7 @@ def registered_tools():
     return {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
 
 
-def test_the_server_registers_exactly_the_seven_tools():
+def test_the_server_registers_exactly_the_expected_tools():
     assert set(registered_tools()) == EXPECTED_TOOLS
 
 
@@ -28,9 +32,14 @@ def test_every_tool_has_a_description():
         assert tool.description, f"{name} has no description"
 
 
-def test_start_release_declares_its_three_arguments():
+def test_start_release_declares_its_arguments():
     schema = registered_tools()["start_release"].input_schema
-    assert set(schema["properties"]) == {"repo_path", "version", "dry_run"}
+    assert set(schema["properties"]) == {
+        "repo_path",
+        "version",
+        "dry_run",
+        "approval_timeout",
+    }
     assert set(schema["required"]) == {"repo_path", "version"}
 
 

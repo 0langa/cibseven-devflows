@@ -31,13 +31,6 @@ def test_history_time_to_live_is_set(process):
     assert process.get(f"{{{CAMUNDA_NS}}}historyTimeToLive") == "P30D"
 
 
-def test_the_three_external_tasks_use_the_expected_topics(process):
-    topics = {
-        task.get(f"{{{CAMUNDA_NS}}}topic") for task in process.findall("bpmn:serviceTask", NS)
-    }
-    assert topics == {"devflows.gates", "devflows.tag", "devflows.publish"}
-
-
 def test_every_service_task_is_an_external_task(process):
     for task in process.findall("bpmn:serviceTask", NS):
         assert task.get(f"{{{CAMUNDA_NS}}}type") == "external"
@@ -50,15 +43,6 @@ def test_there_is_exactly_one_user_task_for_the_camunda_admin_group(process):
     assert tasks[0].get("id") == "approve_release"
 
 
-def test_the_user_task_form_asks_for_approved_and_a_comment(process):
-    task = process.find("bpmn:userTask", NS)
-    fields = task.findall(
-        f"bpmn:extensionElements/{{{CAMUNDA_NS}}}formData/{{{CAMUNDA_NS}}}formField", NS
-    )
-    by_id = {field.get("id"): field.get("type") for field in fields}
-    assert by_id == {"approved": "boolean", "approval_comment": "string"}
-
-
 def test_both_gateways_branch_on_the_expected_variables(process):
     expressions = {
         flow.findtext("bpmn:conditionExpression", default="", namespaces=NS)
@@ -69,11 +53,6 @@ def test_both_gateways_branch_on_the_expected_variables(process):
     assert "${gates_passed == false}" in expressions
     assert "${approved == true}" in expressions
     assert "${approved == false}" in expressions
-
-
-def test_there_are_three_end_events(process):
-    ends = {event.get("id") for event in process.findall("bpmn:endEvent", NS)}
-    assert ends == {"end_gates_failed", "end_rejected", "end_released"}
 
 
 def test_the_diagram_has_shapes_so_the_modeler_can_render_it():
@@ -93,3 +72,127 @@ def test_a_missing_override_is_reported(tmp_path, monkeypatch):
     monkeypatch.setenv("DEVFLOWS_BPMN_PATH", str(tmp_path / "nope.bpmn"))
     with pytest.raises(BpmnNotFound):
         default_bpmn_path()
+
+
+# ---- v0.2.0 additions ----------------------------------------------------
+
+
+def test_the_notes_and_untag_topics_are_wired(process):
+    topics = {
+        task.get(f"{{{CAMUNDA_NS}}}topic") for task in process.findall("bpmn:serviceTask", NS)
+    }
+    assert topics == {
+        "devflows.gates",
+        "devflows.notes",
+        "devflows.tag",
+        "devflows.publish",
+        "devflows.untag",
+    }
+
+
+def test_the_business_rule_task_calls_the_release_policy_decision(process):
+    task = process.find("bpmn:businessRuleTask", NS)
+    assert task.get("id") == "decide_policy"
+    assert task.get(f"{{{CAMUNDA_NS}}}decisionRef") == "release-policy"
+    # singleResult maps the decision output into one map, so the gateway can
+    # read ${policy.approval_required}.
+    assert task.get(f"{{{CAMUNDA_NS}}}mapDecisionResult") == "singleResult"
+    assert task.get(f"{{{CAMUNDA_NS}}}resultVariable") == "policy"
+
+
+def test_the_policy_gateway_branches_on_the_decision(process):
+    expressions = {
+        flow.findtext("bpmn:conditionExpression", default="", namespaces=NS)
+        for flow in process.findall("bpmn:sequenceFlow", NS)
+        if flow.find("bpmn:conditionExpression", NS) is not None
+    }
+    assert "${policy.approval_required == true}" in expressions
+    assert "${policy.approval_required == false}" in expressions
+
+
+def test_the_auto_approved_path_goes_straight_to_the_tag(process):
+    flow = next(
+        f for f in process.findall("bpmn:sequenceFlow", NS) if f.get("id") == "flow_auto_approved"
+    )
+    assert flow.get("sourceRef") == "policy_gateway"
+    assert flow.get("targetRef") == "create_tag"
+
+
+def test_the_approval_has_a_timer_whose_duration_is_a_variable(process):
+    timer = next(
+        event
+        for event in process.findall("bpmn:boundaryEvent", NS)
+        if event.get("id") == "approval_timer"
+    )
+    assert timer.get("attachedToRef") == "approve_release"
+    # cancelActivity true: when the timer fires the approval is gone, not doubled.
+    assert timer.get("cancelActivity") == "true"
+    duration = timer.findtext(
+        "bpmn:timerEventDefinition/bpmn:timeDuration", default="", namespaces=NS
+    )
+    assert duration == "${approval_timeout}"
+
+
+def test_the_form_offers_the_drafted_notes_for_editing(process):
+    task = process.find("bpmn:userTask", NS)
+    fields = task.findall(
+        f"bpmn:extensionElements/{{{CAMUNDA_NS}}}formData/{{{CAMUNDA_NS}}}formField", NS
+    )
+    by_id = {field.get("id"): field for field in fields}
+    assert set(by_id) == {"approved", "release_notes", "approval_comment"}
+    assert by_id["release_notes"].get("defaultValue") == "${release_notes}"
+
+
+def test_the_tag_can_be_compensated(process):
+    boundary = next(
+        event
+        for event in process.findall("bpmn:boundaryEvent", NS)
+        if event.get("id") == "compensate_tag"
+    )
+    assert boundary.get("attachedToRef") == "create_tag"
+    assert boundary.find("bpmn:compensateEventDefinition", NS) is not None
+
+    handler = next(
+        task for task in process.findall("bpmn:serviceTask", NS) if task.get("id") == "undo_tag"
+    )
+    # A compensation handler is never on the normal path.
+    assert handler.get("isForCompensation") == "true"
+    assert handler.find("bpmn:incoming", NS) is None
+    assert handler.find("bpmn:outgoing", NS) is None
+
+    association = process.find("bpmn:association", NS)
+    assert association.get("sourceRef") == "compensate_tag"
+    assert association.get("targetRef") == "undo_tag"
+
+
+def test_a_failed_publish_is_caught_and_compensated(process):
+    boundary = next(
+        event
+        for event in process.findall("bpmn:boundaryEvent", NS)
+        if event.get("id") == "publish_failed"
+    )
+    assert boundary.get("attachedToRef") == "publish_release"
+    assert boundary.find("bpmn:errorEventDefinition", NS) is not None
+
+    throw = process.find("bpmn:intermediateThrowEvent", NS)
+    assert throw.get("id") == "throw_compensation"
+    assert throw.find("bpmn:compensateEventDefinition", NS) is not None
+
+
+def test_the_error_code_matches_the_one_the_worker_raises():
+    from devflows_worker.handlers import PUBLISH_FAILED
+
+    root = ElementTree.parse(default_bpmn_path()).getroot()
+    error = root.find("bpmn:error", NS)
+    assert error.get("errorCode") == PUBLISH_FAILED
+
+
+def test_every_ending_is_an_end_event(process):
+    ends = {event.get("id") for event in process.findall("bpmn:endEvent", NS)}
+    assert ends == {
+        "end_gates_failed",
+        "end_approval_expired",
+        "end_rejected",
+        "end_publish_failed",
+        "end_released",
+    }

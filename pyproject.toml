@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 devflows-worker = "devflows_worker.main:main"
 devflows-mcp = "devflows_mcp.server:main"
+devflows-doctor = "devflows_core.doctor:main"
 
 [dependency-groups]
 dev = [

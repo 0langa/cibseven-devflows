@@ -103,6 +103,19 @@ class EngineClient:
             for item in payload
         ]
 
+    def list_decision_definitions(self) -> list[dict[str, Any]]:
+        """Deployed DMN decisions."""
+        payload = self._request("GET", "/decision-definition")
+        return [
+            {
+                "key": item.get("key"),
+                "id": item.get("id"),
+                "version": item.get("version"),
+                "name": item.get("name"),
+            }
+            for item in payload
+        ]
+
     # ---- instances -------------------------------------------------------
 
     def start_process(self, key: str, variables: dict[str, Any]) -> str:
@@ -170,6 +183,56 @@ class EngineClient:
         """Complete a user task with the given variables."""
         self._request("POST", f"/task/{task_id}/complete", json={"variables": to_engine(variables)})
 
+    # ---- runs and incidents ----------------------------------------------
+
+    def list_historic_process_instances(
+        self, process_definition_key: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """The most recently started instances of one process, newest first."""
+        payload = self._request(
+            "GET",
+            "/history/process-instance",
+            params={
+                "processDefinitionKey": process_definition_key,
+                "sortBy": "startTime",
+                "sortOrder": "desc",
+                "maxResults": limit,
+            },
+        )
+        return [
+            {
+                "process_instance_id": item.get("id"),
+                "state": item.get("state"),
+                "start_time": item.get("startTime"),
+                "end_time": item.get("endTime"),
+            }
+            for item in payload
+        ]
+
+    def list_incidents(self, process_instance_id: str | None = None) -> list[dict[str, Any]]:
+        """Open incidents, optionally limited to one process instance."""
+        params = {"processInstanceId": process_instance_id} if process_instance_id else {}
+        payload = self._request("GET", "/incident", params=params)
+        return [
+            {
+                "id": incident.get("id"),
+                "type": incident.get("incidentType"),
+                "activity_id": incident.get("activityId"),
+                "message": incident.get("incidentMessage"),
+                "configuration": incident.get("configuration"),
+                "process_instance_id": incident.get("processInstanceId"),
+            }
+            for incident in payload
+        ]
+
+    def delete_process_instance(self, process_instance_id: str, reason: str) -> None:
+        """Cancel a running instance. The reason is recorded in the history."""
+        self._request(
+            "DELETE",
+            f"/process-instance/{process_instance_id}",
+            params={"skipCustomListeners": "false", "reason": reason},
+        )
+
     # ---- external tasks --------------------------------------------------
 
     def fetch_and_lock(
@@ -223,6 +286,36 @@ class EngineClient:
                 "retryTimeout": retry_timeout_ms,
             },
         )
+
+    def bpmn_error_external_task(
+        self,
+        task_id: str,
+        worker_id: str,
+        error_code: str,
+        error_message: str,
+        variables: dict[str, Any] | None = None,
+    ) -> None:
+        """Raise a BPMN error from an external task.
+
+        This is not the same as a failure. A failure means the work might
+        succeed if it is tried again; a BPMN error means the work will not
+        succeed and the process should decide what to do about it, usually
+        through an error boundary event.
+        """
+        self._request(
+            "POST",
+            f"/external-task/{task_id}/bpmnError",
+            json={
+                "workerId": worker_id,
+                "errorCode": error_code,
+                "errorMessage": error_message[:600],
+                "variables": to_engine(variables or {}),
+            },
+        )
+
+    def set_external_task_retries(self, task_id: str, retries: int) -> None:
+        """Give a failed external task more attempts, which clears its incident."""
+        self._request("PUT", f"/external-task/{task_id}/retries", json={"retries": retries})
 
     # ---- plumbing --------------------------------------------------------
 
