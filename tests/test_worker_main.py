@@ -57,6 +57,7 @@ def test_topics_ask_only_for_the_variables_the_handlers_need():
             "dry_run",
             "tag_name",
             "release_notes",
+            "notes_override",
             "approval_timeout",
         }
 

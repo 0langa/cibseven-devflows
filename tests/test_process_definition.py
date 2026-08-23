@@ -133,14 +133,13 @@ def test_the_approval_has_a_timer_whose_duration_is_a_variable(process):
     assert duration == "${approval_timeout}"
 
 
-def test_the_form_offers_the_drafted_notes_for_editing(process):
+def test_the_form_asks_for_a_decision_a_comment_and_an_optional_override(process):
     task = process.find("bpmn:userTask", NS)
     fields = task.findall(
         f"bpmn:extensionElements/{{{CAMUNDA_NS}}}formData/{{{CAMUNDA_NS}}}formField", NS
     )
     by_id = {field.get("id"): field for field in fields}
-    assert set(by_id) == {"approved", "release_notes", "approval_comment"}
-    assert by_id["release_notes"].get("defaultValue") == "${release_notes}"
+    assert set(by_id) == {"approved", "notes_override", "approval_comment"}
 
 
 def test_the_tag_can_be_compensated(process):
@@ -196,3 +195,19 @@ def test_every_ending_is_an_end_event(process):
         "end_publish_failed",
         "end_released",
     }
+
+
+def test_the_form_cannot_flatten_the_drafted_notes(process):
+    """A generated string field is a single-line input.
+
+    Giving it the drafted notes as its default meant submitting the form
+    replaced multi-line markdown with one long line, which is what got
+    published as the body of v0.2.0. The field is now an empty override.
+    """
+    task = process.find("bpmn:userTask", NS)
+    fields = task.findall(
+        f"bpmn:extensionElements/{{{CAMUNDA_NS}}}formData/{{{CAMUNDA_NS}}}formField", NS
+    )
+    by_id = {field.get("id"): field for field in fields}
+    assert "release_notes" not in by_id
+    assert by_id["notes_override"].get("defaultValue") == ""

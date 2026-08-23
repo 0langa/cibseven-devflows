@@ -511,3 +511,87 @@ def test_the_prompt_asks_for_no_code_fence(repo):
     runner = fake_runner([step("v1.0.0"), step("abc123 x"), step("## Added")])
     handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
     assert "code fence" in runner.stdins[2]
+    assert "<notes>" in runner.stdins[2]
+
+
+def test_only_what_is_between_the_markers_is_published(repo):
+    """The reply that shipped a broken v0.2.0 body, as a regression test."""
+    reply = (
+        "Got squashed commit detail. Notes below (markdown, no code fence):\n"
+        "<notes>\n## Added\n- a thing\n</notes>\n"
+        "That is it. Want me to save this to a CHANGELOG file?"
+    )
+    runner = fake_runner([step("v1.0.0"), step("abc123 feat: a thing"), step(reply)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"] == "## Added\n- a thing"
+    assert "Got squashed" not in result["release_notes"]
+    assert "CHANGELOG" not in result["release_notes"]
+
+
+def test_markers_and_a_fence_together_are_both_removed(repo):
+    reply = "<notes>\n```markdown\n## Added\n- a thing\n```\n</notes>"
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step(reply)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"] == "## Added\n- a thing"
+
+
+def test_a_reply_without_markers_still_works(repo):
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step("## Added\n- a thing")])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"] == "## Added\n- a thing"
+
+
+def test_the_notes_keep_their_line_breaks(repo):
+    reply = "<notes>\n## Added\n- one\n- two\n\n## Fixed\n- three\n</notes>"
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step(reply)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"].count("\n") == 5
+
+
+# ---- the approval form must not be able to flatten the notes -------------
+
+
+def test_an_override_typed_into_the_form_replaces_the_draft(notes_repo):
+    created = StepResult(command="gh", exit_code=0, output="https://x/y", duration_seconds=0.1)
+    result = handle_publish(
+        {
+            "repo_path": str(notes_repo),
+            "version": "0.2.0",
+            "tag_name": "v0.2.0",
+            "dry_run": False,
+            "release_notes": "## Drafted\n- by the model",
+            "notes_override": "I wrote this myself",
+        },
+        runner=fake_runner([0, 0, created]),
+    )
+    path = Path(result["publish_command"].split("--notes-file ", 1)[1].strip())
+    assert path.read_text(encoding="utf-8").strip() == "I wrote this myself"
+
+
+def test_an_empty_override_leaves_the_draft_alone(notes_repo):
+    created = StepResult(command="gh", exit_code=0, output="https://x/y", duration_seconds=0.1)
+    result = handle_publish(
+        {
+            "repo_path": str(notes_repo),
+            "version": "0.2.0",
+            "tag_name": "v0.2.0",
+            "dry_run": False,
+            "release_notes": "## Drafted\n- by the model",
+            "notes_override": "",
+        },
+        runner=fake_runner([0, 0, created]),
+    )
+    path = Path(result["publish_command"].split("--notes-file ", 1)[1].strip())
+    # The multi-line draft survives, line breaks and all.
+    assert path.read_text(encoding="utf-8").strip() == "## Drafted\n- by the model"
+
+
+def test_claude_is_not_asked_when_there_are_no_commits(repo):
+    """An empty commit list can only produce a question, not release notes."""
+    runner = fake_runner([step("v1.0.0"), step("")])
+    result = handle_notes({"repo_path": str(repo), "version": "1.0.1"}, runner=runner)
+    assert result["notes_source"] == "git-log"
+    assert result["release_notes"] == "Release v1.0.1."
+    # Two commands: the tag list and the log. No claude call.
+    assert len(runner.calls) == 2
+    assert not any(call.startswith("claude") for call in runner.calls)

@@ -42,6 +42,7 @@ FETCHED_VARIABLES = [
     "dry_run",
     "tag_name",
     "release_notes",
+    "notes_override",
     "approval_timeout",
 ]
 

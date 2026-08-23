@@ -58,8 +58,13 @@
         <camunda:formData>
           <camunda:formField id="approved" label="Approve this release" type="boolean"
                              defaultValue="false" />
-          <camunda:formField id="release_notes" label="Release notes" type="string"
-                             defaultValue="${release_notes}" />
+          <!-- Deliberately NOT release_notes with the draft as its default. A
+               generated form renders a string field as a single-line input, so
+               submitting it would flatten the multi-line markdown into one
+               line. This field starts empty and only replaces the draft when
+               someone actually types something. -->
+          <camunda:formField id="notes_override" label="Replace the release notes (optional)"
+                             type="string" defaultValue="" />
           <camunda:formField id="approval_comment" label="Comment" type="string" />
         </camunda:formData>
       </bpmn:extensionElements>

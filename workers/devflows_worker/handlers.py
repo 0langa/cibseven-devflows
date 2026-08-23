@@ -31,6 +31,11 @@ PUBLISH_FAILED = "PUBLISH_FAILED"
 
 DEFAULT_APPROVAL_TIMEOUT = "PT24H"
 
+# The model is asked to put the notes between these, so a stray preamble or
+# sign-off cannot end up in a published release body.
+NOTES_OPEN = "<notes>"
+NOTES_CLOSE = "</notes>"
+
 NOTES_TIMEOUT_SECONDS = 120
 COMMIT_LOG_LIMIT = 50
 
@@ -121,7 +126,12 @@ def handle_notes(
     release_kind = classify_release(previous_version, version)
     commits = _commits_since(repo, previous_version, runner)
 
-    notes = _draft_notes_with_claude(repo, version, release_kind, commits, runner)
+    # With nothing to summarise there is nothing to ask for. A model handed an
+    # empty commit list answers with a question rather than notes, and that
+    # question would become the release body.
+    notes = ""
+    if commits:
+        notes = _draft_notes_with_claude(repo, version, release_kind, commits, runner)
     source = "claude"
     if not notes:
         notes = _notes_from_commits(config.tag.format.format(version=version), commits)
@@ -293,31 +303,36 @@ def _draft_notes_with_claude(
     except Exception:
         # Whatever went wrong, notes are not worth failing a release over.
         return ""
-    return _strip_code_fence(result.output) if result.ok else ""
+    return _extract_notes(result.output) if result.ok else ""
 
 
-def _strip_code_fence(text: str) -> str:
-    """Return just the notes when the model wrapped them in a code fence.
+def _extract_notes(text: str) -> str:
+    """Pull the notes out of whatever the model actually replied with.
 
-    Asking for "the notes only" does not reliably stop a model from opening
-    with ```markdown, and some also add a line of chatter after the closing
-    fence. Published as-is, both would end up in the release body.
+    Asking for "the notes only" is not a guarantee. Real replies have arrived
+    wrapped in ```markdown, with a sentence of preamble, and with a question
+    afterwards offering to save them somewhere. Anything left in gets published
+    verbatim as the release body.
 
-    The rule is deliberately narrow: only a fence on the first non-empty line
-    counts as a wrapper. Notes that legitimately contain a fenced command block
-    further down keep it.
+    So the prompt asks for explicit markers and this reads between them. The
+    fence handling stays as a fallback for a reply that ignored the markers.
     """
-    lines = text.strip().splitlines()
-    first = next((index for index, line in enumerate(lines) if line.strip()), None)
-    if first is None or not lines[first].lstrip().startswith("```"):
-        return text.strip()
+    body = text.strip()
 
-    body = []
-    for line in lines[first + 1 :]:
-        if line.strip() == "```":
-            break
-        body.append(line)
-    return "\n".join(body).strip()
+    if NOTES_OPEN in body and NOTES_CLOSE in body:
+        body = body.split(NOTES_OPEN, 1)[1].rsplit(NOTES_CLOSE, 1)[0].strip()
+
+    lines = body.splitlines()
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is not None and lines[first].lstrip().startswith("```"):
+        kept = []
+        for line in lines[first + 1 :]:
+            if line.strip() == "```":
+                break
+            kept.append(line)
+        body = "\n".join(kept)
+
+    return body.strip()
 
 
 def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:
@@ -326,9 +341,9 @@ def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:
     return (
         f"Write the release notes for version {version} of this repository. "
         f"Compared with the previous release this is a {release_kind} release.\n\n"
-        "Keep it short, use markdown, group the entries by kind of change, and "
-        "answer with the notes only: no preamble, no closing remark, and do not "
-        "wrap the answer in a code fence.\n\n"
+        "Keep it short, use markdown and group the entries by kind of change.\n\n"
+        f"Put the notes between {NOTES_OPEN} and {NOTES_CLOSE}, and write nothing "
+        "outside those markers. Do not wrap them in a code fence.\n\n"
         f"Commits in this release:\n{listing}\n"
     )
 
@@ -351,7 +366,11 @@ def _notes_file(publish_command: str, variables: dict[str, Any], tag_name: str) 
     if "{notes_file}" not in publish_command:
         return None
 
-    notes = str(variables.get("release_notes") or "").strip() or f"Release {tag_name}."
+    # An override typed into the approval form wins; otherwise the draft is
+    # published exactly as it was written.
+    override = str(variables.get("notes_override") or "").strip()
+    notes = override or str(variables.get("release_notes") or "").strip()
+    notes = notes or f"Release {tag_name}."
     handle = tempfile.NamedTemporaryFile(
         "w", suffix=".md", prefix="devflows-notes-", delete=False, encoding="utf-8"
     )
