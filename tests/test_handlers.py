@@ -497,3 +497,17 @@ def test_notes_containing_a_fenced_block_are_left_alone(repo):
     result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
     # The fence is in the middle, not wrapping everything, so it must survive.
     assert result["release_notes"] == notes
+
+
+def test_chatter_after_the_closing_fence_is_dropped(repo):
+    noisy = "```markdown\n## Added\n- a thing\n```\n\nNotes ready. Paste where you want, done."
+    runner = fake_runner([step("v1.0.0"), step("abc123 feat: a thing"), step(noisy)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"] == "## Added\n- a thing"
+    assert "Paste where you want" not in result["release_notes"]
+
+
+def test_the_prompt_asks_for_no_code_fence(repo):
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step("## Added")])
+    handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert "code fence" in runner.stdins[2]

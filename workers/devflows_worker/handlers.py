@@ -297,16 +297,27 @@ def _draft_notes_with_claude(
 
 
 def _strip_code_fence(text: str) -> str:
-    """Unwrap notes the model returned inside a markdown code fence.
+    """Return just the notes when the model wrapped them in a code fence.
 
-    Asking for "the notes only" does not reliably stop a model from wrapping
-    the answer in ```markdown. Published as-is, the fence would show up in the
-    release body, so it is removed here rather than hoped away in the prompt.
+    Asking for "the notes only" does not reliably stop a model from opening
+    with ```markdown, and some also add a line of chatter after the closing
+    fence. Published as-is, both would end up in the release body.
+
+    The rule is deliberately narrow: only a fence on the first non-empty line
+    counts as a wrapper. Notes that legitimately contain a fenced command block
+    further down keep it.
     """
     lines = text.strip().splitlines()
-    if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
-        lines = lines[1:-1]
-    return "\n".join(lines).strip()
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is None or not lines[first].lstrip().startswith("```"):
+        return text.strip()
+
+    body = []
+    for line in lines[first + 1 :]:
+        if line.strip() == "```":
+            break
+        body.append(line)
+    return "\n".join(body).strip()
 
 
 def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:
@@ -316,7 +327,8 @@ def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:
         f"Write the release notes for version {version} of this repository. "
         f"Compared with the previous release this is a {release_kind} release.\n\n"
         "Keep it short, use markdown, group the entries by kind of change, and "
-        "answer with the notes only: no preamble, no closing remark.\n\n"
+        "answer with the notes only: no preamble, no closing remark, and do not "
+        "wrap the answer in a code fence.\n\n"
         f"Commits in this release:\n{listing}\n"
     )
 
