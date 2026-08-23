@@ -358,3 +358,14 @@ def test_set_external_task_retries_uses_put():
     assert seen["method"] == "PUT"
     assert seen["path"].endswith("/external-task/et-1/retries")
     assert seen["body"] == {"retries": 3}
+
+
+def test_list_decision_definitions_returns_a_small_summary():
+    summary = {
+        "key": "release-policy",
+        "id": "release-policy:1:a",
+        "version": 1,
+        "name": "Release policy",
+    }
+    client = client_for(lambda r: httpx.Response(200, json=[summary]))
+    assert client.list_decision_definitions() == [summary]

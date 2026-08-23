@@ -74,6 +74,37 @@ def approve_gate(task_id: str, approve: bool, comment: str = "") -> dict[str, An
         return tools.approve_gate(client, task_id, approve, comment)
 
 
+@mcp.tool()
+def list_runs(limit: int = 10) -> dict[str, Any]:
+    """List the most recent release runs, newest first, with their state."""
+    with EngineClient() as client:
+        return tools.list_runs(client, limit)
+
+
+@mcp.tool()
+def retry_run(process_instance_id: str) -> dict[str, Any]:
+    """Give a run that is stuck on an incident another attempt."""
+    with EngineClient() as client:
+        return tools.retry_run(client, process_instance_id)
+
+
+@mcp.tool()
+def cancel_run(
+    process_instance_id: str,
+    reason: str = "cancelled through the devflows MCP server",
+) -> dict[str, Any]:
+    """Stop a running release. The reason is kept in the engine history."""
+    with EngineClient() as client:
+        return tools.cancel_run(client, process_instance_id, reason)
+
+
+@mcp.tool()
+def doctor(repo_path: str | None = None) -> dict[str, Any]:
+    """Check whether a release can run: engine, process, decision, config."""
+    with EngineClient() as client:
+        return tools.doctor(client, repo_path)
+
+
 def main() -> None:
     """Entry point for the devflows-mcp console script."""
     mcp.run()

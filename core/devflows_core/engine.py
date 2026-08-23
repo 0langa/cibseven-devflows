@@ -103,6 +103,19 @@ class EngineClient:
             for item in payload
         ]
 
+    def list_decision_definitions(self) -> list[dict[str, Any]]:
+        """Deployed DMN decisions."""
+        payload = self._request("GET", "/decision-definition")
+        return [
+            {
+                "key": item.get("key"),
+                "id": item.get("id"),
+                "version": item.get("version"),
+                "name": item.get("name"),
+            }
+            for item in payload
+        ]
+
     # ---- instances -------------------------------------------------------
 
     def start_process(self, key: str, variables: dict[str, Any]) -> str:

@@ -75,6 +75,25 @@ class FakeClient:
         self.completed = (task_id, variables)
         return self._answer("complete_task", None)
 
+    def list_incidents(self, pid=None):
+        return self._answer("list_incidents", [])
+
+    def list_historic_process_instances(self, key, limit=10):
+        self.listed = (key, limit)
+        return self._answer("list_historic_process_instances", [])
+
+    def set_external_task_retries(self, task_id, retries):
+        self.retried = getattr(self, "retried", [])
+        self.retried.append((task_id, retries))
+        return self._answer("set_external_task_retries", None)
+
+    def delete_process_instance(self, pid, reason):
+        self.deleted = (pid, reason)
+        return self._answer("delete_process_instance", None)
+
+    def list_decision_definitions(self):
+        return self._answer("list_decision_definitions", [])
+
 
 @pytest.fixture()
 def repo(tmp_path):
@@ -286,3 +305,140 @@ def test_approve_gate_reports_an_unknown_task():
     result = tools.approve_gate(client, "x", True)
     assert result["ok"] is False
     assert "404" in result["error"]
+
+
+# ---- list_runs -----------------------------------------------------------
+
+
+def test_list_runs_asks_for_the_release_process():
+    runs = [{"process_instance_id": "pi-1", "state": "COMPLETED"}]
+    client = FakeClient(list_historic_process_instances=runs)
+    result = tools.list_runs(client, limit=3)
+    assert client.listed == ("devflows-release", 3)
+    assert result == {"ok": True, "runs": runs}
+
+
+# ---- get_run reports incidents -------------------------------------------
+
+
+def test_get_run_surfaces_the_incident_behind_a_stuck_run():
+    incident = {
+        "id": "inc-1",
+        "type": "failedExternalTask",
+        "activity_id": "publish_release",
+        "message": "gh exploded",
+        "configuration": "et-9",
+        "process_instance_id": "pi-1",
+    }
+    client = FakeClient(
+        get_process_instance={"id": "pi-1"},
+        list_incidents=[incident],
+    )
+    result = tools.get_run(client, "pi-1")
+    assert result["incidents"] == [incident]
+
+
+# ---- retry_run -----------------------------------------------------------
+
+
+def test_retry_run_gives_the_failed_external_task_another_attempt():
+    client = FakeClient(
+        list_incidents=[
+            {"id": "inc-1", "type": "failedExternalTask", "configuration": "et-9"},
+        ]
+    )
+    result = tools.retry_run(client, "pi-1")
+    assert client.retried == [("et-9", 1)]
+    assert result["ok"] is True
+    assert result["retried_tasks"] == ["et-9"]
+
+
+def test_retry_run_ignores_incidents_that_are_not_failed_tasks():
+    client = FakeClient(
+        list_incidents=[{"id": "inc-1", "type": "failedJob", "configuration": "job-1"}]
+    )
+    result = tools.retry_run(client, "pi-1")
+    assert result["ok"] is False
+    assert "no failed external task" in result["error"]
+
+
+def test_retry_run_says_so_when_there_is_nothing_wrong():
+    result = tools.retry_run(FakeClient(), "pi-1")
+    assert result["ok"] is False
+
+
+# ---- cancel_run ----------------------------------------------------------
+
+
+def test_cancel_run_records_a_reason():
+    client = FakeClient()
+    result = tools.cancel_run(client, "pi-1", "wrong version")
+    assert client.deleted == ("pi-1", "wrong version")
+    assert result["ok"] is True
+
+
+def test_cancel_run_has_a_default_reason():
+    client = FakeClient()
+    tools.cancel_run(client, "pi-1")
+    assert client.deleted[1]
+
+
+def test_cancel_run_reports_an_engine_error():
+    client = FakeClient(delete_process_instance=EngineError("DELETE failed (404): gone"))
+    result = tools.cancel_run(client, "pi-1")
+    assert result["ok"] is False
+    assert "404" in result["error"]
+
+
+# ---- doctor --------------------------------------------------------------
+
+
+def healthy_client(**overrides):
+    defaults = {
+        "list_process_definitions": [{"key": "devflows-release"}],
+        "list_decision_definitions": [{"key": "release-policy"}],
+    }
+    defaults.update(overrides)
+    return FakeClient(**defaults)
+
+
+def test_doctor_is_happy_when_everything_is_deployed(repo):
+    result = tools.doctor(healthy_client(), str(repo))
+    assert result["ok"] is True
+    names = [check["name"] for check in result["checks"]]
+    assert names == ["engine", "process deployed", "decision deployed", "devflows.yaml"]
+
+
+def test_doctor_reports_a_missing_process():
+    result = tools.doctor(healthy_client(list_process_definitions=[]))
+    assert result["ok"] is False
+    failed = [check for check in result["checks"] if not check["ok"]]
+    assert failed[0]["name"] == "process deployed"
+
+
+def test_doctor_reports_a_missing_decision():
+    result = tools.doctor(healthy_client(list_decision_definitions=[]))
+    assert result["ok"] is False
+    assert any(c["name"] == "decision deployed" and not c["ok"] for c in result["checks"])
+
+
+def test_doctor_does_not_look_at_the_engine_twice_when_it_is_down():
+    client = FakeClient(
+        engine_status={
+            "reachable": False,
+            "version": None,
+            "engines": [],
+            "url": "http://localhost:8080/engine-rest",
+            "error": "connection refused",
+        }
+    )
+    result = tools.doctor(client)
+    assert result["ok"] is False
+    assert "connection refused" in result["checks"][0]["detail"]
+
+
+def test_doctor_checks_the_repository_only_when_asked(repo):
+    without = tools.doctor(healthy_client())
+    assert not any(check["name"] == "devflows.yaml" for check in without["checks"])
+    withrepo = tools.doctor(healthy_client(), str(repo))
+    assert any(check["name"] == "devflows.yaml" for check in withrepo["checks"])

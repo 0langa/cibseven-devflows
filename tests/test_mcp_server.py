@@ -12,6 +12,10 @@ EXPECTED_TOOLS = {
     "get_run",
     "list_gates",
     "approve_gate",
+    "list_runs",
+    "retry_run",
+    "cancel_run",
+    "doctor",
 }
 
 
@@ -19,7 +23,7 @@ def registered_tools():
     return {tool.name: tool for tool in asyncio.run(mcp.list_tools())}
 
 
-def test_the_server_registers_exactly_the_seven_tools():
+def test_the_server_registers_exactly_the_expected_tools():
     assert set(registered_tools()) == EXPECTED_TOOLS
 
 
