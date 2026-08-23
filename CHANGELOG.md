@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- The approval form no longer flattens the drafted release notes. It carried a `release_notes`
+  string field defaulting to the draft, and a generated form renders a string field as a
+  single-line input, so submitting it replaced multi-line markdown with one long line. The field is
+  now `notes_override`, empty by default.
+- Only what the model puts between `<notes>` markers is published. Replies had arrived wrapped in a
+  code fence, with a sentence of preamble, and with a question afterwards, all of which reached the
+  release body.
+- The model is no longer asked to write notes when there are no commits to summarise, because it
+  answers with a question rather than notes.
+
 ## [0.2.0] - 2026-08-22
 
 Four things a shell script cannot do.

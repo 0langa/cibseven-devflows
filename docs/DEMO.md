@@ -237,5 +237,10 @@ For the record, so the claim can be checked rather than taken on trust.
 | Version | Process instance | Notes |
 | --- | --- | --- |
 | v0.1.0 | `0e656a8f-9e47-11f1-be39-22fc550e6cab` | Approved by `demo` in the web UI, comment "Good release" |
+| v0.2.0 | `665766a1-9f06-11f1-be39-22fc550e6cab` | Notes drafted by `claude`; the policy required approval because 0.2.0 is a minor release |
+
+The v0.2.0 body had to be corrected afterwards: the approval form flattened the multi-line notes
+into one line, and the model added prose around them. Both are fixed and covered by tests, but the
+release itself was already public by then.
 
 Each instance stays in the engine history for as long as its 30-day `historyTimeToLive` allows.
