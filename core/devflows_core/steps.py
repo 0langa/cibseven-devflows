@@ -50,8 +50,15 @@ def run_step(
     command: str,
     cwd: Path,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    stdin: str | None = None,
 ) -> StepResult:
-    """Run a shell command in a directory and capture everything it printed."""
+    """Run a shell command in a directory and capture everything it printed.
+
+    Pass anything long or awkward through `stdin` rather than building it into
+    the command. Quoting rules differ between shells - POSIX quoting means
+    nothing to cmd.exe - so text with spaces, quotes or newlines in a command
+    string is silently mangled on one platform or the other.
+    """
     started = time.monotonic()
     try:
         completed = subprocess.run(
@@ -62,6 +69,7 @@ def run_step(
             text=True,
             timeout=timeout,
             check=False,
+            input=stdin,
         )
     except subprocess.TimeoutExpired as expired:
         duration = time.monotonic() - started

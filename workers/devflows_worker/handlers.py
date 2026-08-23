@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -285,11 +284,12 @@ def _draft_notes_with_claude(
 ) -> str:
     """Ask the local claude CLI for notes, or return "" if that did not work."""
     prompt = _notes_prompt(version, release_kind, commits)
-    # Commit messages are arbitrary text from the repository, so the prompt is
-    # quoted as a single argument instead of being pasted into the command.
-    command = f"claude -p {shlex.quote(prompt)}"
+    # The prompt goes on stdin, never on the command line. Commit messages are
+    # arbitrary text, and shell quoting is not portable: shlex.quote produces
+    # POSIX single quotes, which cmd.exe treats as ordinary characters, so on
+    # Windows the prompt arrives shredded into fragments.
     try:
-        result = runner(command, cwd=repo, timeout=NOTES_TIMEOUT_SECONDS)
+        result = runner("claude -p", cwd=repo, timeout=NOTES_TIMEOUT_SECONDS, stdin=prompt)
     except Exception:
         # Whatever went wrong, notes are not worth failing a release over.
         return ""

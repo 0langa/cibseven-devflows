@@ -68,3 +68,15 @@ def test_trim_output_keeps_the_head_and_the_tail():
     assert trimmed.startswith("A")
     assert trimmed.endswith("B")
     assert "trimmed" in trimmed
+
+
+def test_stdin_reaches_the_command(tmp_path):
+    # Long or awkward text belongs on stdin: shell quoting is not portable.
+    command = f'{sys.executable} -c "import sys; sys.stdout.write(sys.stdin.read().upper())"'
+    result = run_step(command, cwd=tmp_path, stdin="hello from stdin")
+    assert "HELLO FROM STDIN" in result.output
+
+
+def test_a_command_without_stdin_still_works(tmp_path):
+    result = run_step(f'{sys.executable} -c "print(1)"', cwd=tmp_path)
+    assert result.ok

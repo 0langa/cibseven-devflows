@@ -1,7 +1,6 @@
 """The external task handlers, with the shell runner replaced by a fake."""
 
 import json
-import shlex
 from pathlib import Path
 
 import pytest
@@ -47,17 +46,20 @@ def repo(tmp_path):
 
 
 def fake_runner(results):
-    """Return a runner that replays canned results and records the commands."""
+    """Return a runner that replays canned results and records what it was asked."""
     calls = []
+    stdins = []
 
-    def runner(command, cwd, timeout=900):
+    def runner(command, cwd, timeout=900, stdin=None):
         calls.append(command)
+        stdins.append(stdin)
         outcome = results.pop(0) if results else 0
         if isinstance(outcome, StepResult):
             return outcome
         return StepResult(command=command, exit_code=outcome, output="ok", duration_seconds=0.1)
 
     runner.calls = calls
+    runner.stdins = stdins
     return runner
 
 
@@ -275,19 +277,25 @@ def test_notes_come_from_claude_when_the_call_succeeds(repo):
     assert result["previous_version"] == "v0.1.0"
     assert result["release_kind"] == "minor"
     assert runner.calls[0] == TAG_LIST
-    assert runner.calls[2].startswith("claude -p ")
+    assert runner.calls[2] == "claude -p"
 
 
-def test_the_prompt_is_quoted_so_a_commit_message_cannot_break_the_command(repo):
+def test_the_prompt_goes_on_stdin_not_the_command_line(repo):
+    """Shell quoting is not portable, so the prompt must never be an argument.
+
+    shlex.quote produces POSIX single quotes, which cmd.exe passes through as
+    ordinary characters; a prompt built into the command arrives on Windows
+    shredded into fragments at every space.
+    """
     tricky = "abc123 fix: don't \"quote\" me; rm -rf /"
     runner = fake_runner([step("v1.0.0"), step(tricky), step("notes")])
     handle_notes({"repo_path": str(repo), "version": "1.0.1"}, runner=runner)
-    parts = shlex.split(runner.calls[2])
-    assert parts[:2] == ["claude", "-p"]
-    assert len(parts) == 3
-    assert tricky in parts[2]
-    assert "1.0.1" in parts[2]
-    assert "patch" in parts[2]
+
+    assert runner.calls[2] == "claude -p"
+    prompt = runner.stdins[2]
+    assert tricky in prompt
+    assert "1.0.1" in prompt
+    assert "patch" in prompt
 
 
 def test_notes_fall_back_to_the_commit_list_when_claude_fails(repo):
