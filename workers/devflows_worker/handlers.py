@@ -293,7 +293,20 @@ def _draft_notes_with_claude(
     except Exception:
         # Whatever went wrong, notes are not worth failing a release over.
         return ""
-    return result.output.strip() if result.ok else ""
+    return _strip_code_fence(result.output) if result.ok else ""
+
+
+def _strip_code_fence(text: str) -> str:
+    """Unwrap notes the model returned inside a markdown code fence.
+
+    Asking for "the notes only" does not reliably stop a model from wrapping
+    the answer in ```markdown. Published as-is, the fence would show up in the
+    release body, so it is removed here rather than hoped away in the prompt.
+    """
+    lines = text.strip().splitlines()
+    if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
+        lines = lines[1:-1]
+    return "\n".join(lines).strip()
 
 
 def _notes_prompt(version: str, release_kind: str, commits: list[str]) -> str:

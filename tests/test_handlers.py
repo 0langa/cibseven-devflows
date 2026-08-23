@@ -475,3 +475,25 @@ def test_untag_deletes_nothing_in_a_dry_run(repo):
     )
     assert runner.calls == []
     assert result["tag_deleted"] is False
+
+
+def test_notes_wrapped_in_a_code_fence_are_unwrapped(repo):
+    fenced = '```markdown\n## Added\n- a thing\n```'
+    runner = fake_runner([step("v1.0.0"), step("abc123 feat: a thing"), step(fenced)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["notes_source"] == "claude"
+    assert result["release_notes"] == "## Added\n- a thing"
+
+
+def test_a_bare_fence_is_unwrapped_too(repo):
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step("```\n## Added\n```")])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    assert result["release_notes"] == "## Added"
+
+
+def test_notes_containing_a_fenced_block_are_left_alone(repo):
+    notes = "## Added\n\n```bash\nuv run devflows-doctor\n```\n\n## Fixed\n- a bug"
+    runner = fake_runner([step("v1.0.0"), step("abc123 x"), step(notes)])
+    result = handle_notes({"repo_path": str(repo), "version": "1.1.0"}, runner=runner)
+    # The fence is in the middle, not wrapping everything, so it must survive.
+    assert result["release_notes"] == notes
