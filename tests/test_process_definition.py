@@ -211,3 +211,93 @@ def test_the_form_cannot_flatten_the_drafted_notes(process):
     by_id = {field.get("id"): field for field in fields}
     assert "release_notes" not in by_id
     assert by_id["notes_override"].get("defaultValue") == ""
+
+
+# ---- the diagram has to be readable, not merely valid ---------------------
+
+DC_NS = "http://www.omg.org/spec/DD/20100524/DC"
+LAYOUT_NS = {**NS, "dc": DC_NS}
+
+
+def _box(bounds):
+    x = float(bounds.get("x"))
+    y = float(bounds.get("y"))
+    return x, y, x + float(bounds.get("width")), y + float(bounds.get("height"))
+
+
+def _overlap(first, second):
+    ax1, ay1, ax2, ay2 = first
+    bx1, by1, bx2, by2 = second
+    return ax1 < bx2 and bx1 < ax2 and ay1 < by2 and by1 < ay2
+
+
+def _shapes():
+    """Every shape as (element id, its own box, its label box or None)."""
+    root = ElementTree.parse(default_bpmn_path()).getroot()
+    found = []
+    for shape in root.findall(".//bpmndi:BPMNShape", LAYOUT_NS):
+        bounds = shape.find("dc:Bounds", LAYOUT_NS)
+        label = shape.find("bpmndi:BPMNLabel/dc:Bounds", LAYOUT_NS)
+        found.append(
+            (shape.get("bpmnElement"), _box(bounds), _box(label) if label is not None else None)
+        )
+    return found
+
+
+def _edge_labels():
+    root = ElementTree.parse(default_bpmn_path()).getroot()
+    labels = []
+    for edge in root.findall(".//bpmndi:BPMNEdge", LAYOUT_NS):
+        label = edge.find("bpmndi:BPMNLabel/dc:Bounds", LAYOUT_NS)
+        if label is not None:
+            labels.append((edge.get("bpmnElement"), _box(label)))
+    return labels
+
+
+def _task_boxes():
+    """Only the boxes big enough for a label to disappear into."""
+    return [
+        (element_id, box)
+        for element_id, box, _ in _shapes()
+        if (box[2] - box[0]) >= 100 and (box[3] - box[1]) >= 80
+    ]
+
+
+def test_no_shape_label_sits_on_top_of_a_task():
+    """A boundary event label placed to its right lands inside its host task.
+
+    That is what the first v0.2.0 diagram did, and it made the printed diagram
+    unreadable exactly where the interesting parts are.
+    """
+    for element_id, _, label in _shapes():
+        if label is None:
+            continue
+        for task_id, task in _task_boxes():
+            assert not _overlap(label, task), f"label of {element_id} overlaps task {task_id}"
+
+
+def test_no_flow_label_sits_on_top_of_a_task():
+    for flow_id, label in _edge_labels():
+        for task_id, task in _task_boxes():
+            assert not _overlap(label, task), f"label of {flow_id} overlaps task {task_id}"
+
+
+def _attachments():
+    """Which boundary event belongs to which activity."""
+    root = ElementTree.parse(default_bpmn_path()).getroot()
+    process = root.find("bpmn:process", NS)
+    return {
+        event.get("id"): event.get("attachedToRef")
+        for event in process.findall("bpmn:boundaryEvent", NS)
+    }
+
+
+def test_no_two_shapes_overlap():
+    """Apart from boundary events, which belong on the edge of their host."""
+    attached = _attachments()
+    boxes = [(element_id, box) for element_id, box, _ in _shapes()]
+    for index, (first_id, first) in enumerate(boxes):
+        for second_id, second in boxes[index + 1 :]:
+            if attached.get(first_id) == second_id or attached.get(second_id) == first_id:
+                continue
+            assert not _overlap(first, second), f"{first_id} overlaps {second_id}"
