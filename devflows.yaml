@@ -14,4 +14,6 @@ tag:
   format: "v{version}"
 
 publish:
-  run: gh release create v{version} --generate-notes
+  # {notes_file} is filled with the release notes the human approved.
+  # Drop the placeholder and use --generate-notes to let GitHub write them.
+  run: gh release create v{version} --notes-file {notes_file}
