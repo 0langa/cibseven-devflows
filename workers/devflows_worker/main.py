@@ -23,8 +23,11 @@ from devflows_core.variables import from_engine
 from devflows_worker.handlers import (
     GATES_TOPIC,
     HANDLERS,
+    NOTES_TOPIC,
     PUBLISH_TOPIC,
     TAG_TOPIC,
+    UNTAG_TOPIC,
+    BusinessError,
     HandlerError,
 )
 
@@ -32,8 +35,20 @@ DEFAULT_LOCK_DURATION_MS = 300_000
 DEFAULT_ASYNC_TIMEOUT_MS = 10_000
 DEFAULT_MAX_TASKS = 1
 
-TOPIC_ORDER = (GATES_TOPIC, TAG_TOPIC, PUBLISH_TOPIC)
-FETCHED_VARIABLES = ["repo_path", "version", "dry_run", "tag_name"]
+TOPIC_ORDER = (GATES_TOPIC, NOTES_TOPIC, TAG_TOPIC, PUBLISH_TOPIC, UNTAG_TOPIC)
+FETCHED_VARIABLES = [
+    "repo_path",
+    "version",
+    "dry_run",
+    "tag_name",
+    "release_notes",
+    "approval_timeout",
+]
+
+# How long to wait before handing a failed task back, per remaining attempt.
+# Reporting a failure with zero retries would raise an incident immediately,
+# which is the wrong answer for something as ordinary as a network blip.
+RETRY_BACKOFF_MS = (5_000, 15_000, 60_000)
 
 log = logging.getLogger("devflows.worker")
 
@@ -71,18 +86,60 @@ def handle_one(
     log.info("Handling %s (task %s)", topic, task_id)
     try:
         result = handler(variables)
+    except BusinessError as error:
+        # Not a broken worker: the process asked for something that cannot be
+        # done. Let the diagram decide, rather than raising an incident.
+        log.warning("%s raised %s: %s", topic, error.code, error.message)
+        client.bpmn_error_external_task(task_id, worker_id, error.code, error.message)
+        return "bpmn-error"
     except HandlerError as error:
-        log.warning("%s failed: %s", topic, error.message)
-        client.fail_external_task(task_id, worker_id, error.message, error.details)
-        return "failed"
+        return _retry(client, worker_id, task, error.message, error.details)
     except Exception as error:  # noqa: BLE001 - the engine must learn about every failure
         log.exception("%s raised an unexpected error", topic)
-        client.fail_external_task(task_id, worker_id, f"{type(error).__name__}: {error}", "")
-        return "failed"
+        return _retry(client, worker_id, task, f"{type(error).__name__}: {error}", "")
 
     client.complete_external_task(task_id, worker_id, result)
     log.info("Completed %s (task %s)", topic, task_id)
     return "completed"
+
+
+def _retry(
+    client: Any,
+    worker_id: str,
+    task: dict[str, Any],
+    message: str,
+    details: str,
+) -> str:
+    """Hand a failed task back to the engine, with one attempt fewer.
+
+    Camunda reports retries as None the first time a task is fetched, which
+    means "not tried yet". From then on the worker counts down, and an incident
+    only appears once the attempts are used up.
+    """
+    remaining = task.get("retries")
+    if remaining is None:
+        remaining = len(RETRY_BACKOFF_MS)
+    else:
+        remaining = max(0, int(remaining) - 1)
+
+    backoff_ms = RETRY_BACKOFF_MS[-1]
+    if remaining:
+        backoff_ms = RETRY_BACKOFF_MS[len(RETRY_BACKOFF_MS) - remaining]
+
+    if remaining:
+        log.warning("%s failed, %s attempts left: %s", task.get("topicName"), remaining, message)
+    else:
+        log.error("%s failed for the last time: %s", task.get("topicName"), message)
+
+    client.fail_external_task(
+        task["id"],
+        worker_id,
+        message,
+        details,
+        retries=remaining,
+        retry_timeout_ms=backoff_ms,
+    )
+    return "failed"
 
 
 def poll_once(
