@@ -111,6 +111,19 @@ error with the code `PUBLISH_FAILED`. An error boundary event catches it, throws
 the `undo_tag` handler deletes the tag locally and on the remote. No incident is raised, because
 nothing is broken; the release simply did not happen.
 
+## What it looks like
+
+The process stops and waits for a person. The approval carries the gate results and the drafted
+release notes, and it belongs to the `camunda-admin` group rather than to one named user, so
+whoever is around can pick it up.
+
+![The Approve release task in the CIB seven Tasklist, with the approval checkbox, an optional field to replace the drafted release notes, and a comment field](docs/images/tasklist-approval.png)
+
+Afterwards the whole run is in the history: which gates ran, what the policy decided, who approved,
+what was tagged and where it was published.
+
+![A completed Release ritual instance in CIB seven, showing the BPMN diagram with the gates, the policy decision, the approval and its timer, and the tag step with its compensation handler](docs/images/process-instance.png)
+
 ## Quickstart
 
 ```bash
