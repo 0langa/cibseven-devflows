@@ -168,7 +168,8 @@ Then approve it at <http://localhost:8080/webapp/#/seven/auth/tasks> as `demo` /
 filter **My Group Tasks**, claim **Approve release**, tick approve, submit.
 
 In practice you start runs through the MCP server instead of curl. See
-[docs/DEMO.md](docs/DEMO.md) for the full walkthrough.
+[docs/DEMO.md](docs/DEMO.md) for the full walkthrough, or
+[docs/DEMO.de.md](docs/DEMO.de.md) auf Deutsch.
 
 ## `devflows.yaml`
 

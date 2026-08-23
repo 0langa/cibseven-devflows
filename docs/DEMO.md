@@ -3,6 +3,8 @@
 A cold start to a finished release in under ten minutes, and a five-minute script to run in front
 of someone.
 
+Deutsche Fassung: [DEMO.de.md](DEMO.de.md).
+
 ## Before the demo
 
 Run these in order. The whole block takes about three minutes, most of it waiting for the engine.
