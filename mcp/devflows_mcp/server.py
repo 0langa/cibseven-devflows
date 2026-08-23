@@ -44,14 +44,21 @@ def list_processes() -> dict[str, Any]:
 
 
 @mcp.tool()
-def start_release(repo_path: str, version: str, dry_run: bool = True) -> dict[str, Any]:
+def start_release(
+    repo_path: str,
+    version: str,
+    dry_run: bool = True,
+    approval_timeout: str = "PT24H",
+) -> dict[str, Any]:
     """Start a release run for a repository.
 
-    Runs the repository quality gates, then waits for a human to approve. With
-    dry_run true, which is the default, nothing is tagged or published.
+    Runs the gates, drafts release notes, then asks the policy whether a human
+    is needed. With dry_run true, which is the default, nothing is tagged or
+    published. approval_timeout is an ISO 8601 duration after which an
+    unanswered approval expires.
     """
     with EngineClient() as client:
-        return tools.start_release(client, repo_path, version, dry_run)
+        return tools.start_release(client, repo_path, version, dry_run, approval_timeout)
 
 
 @mcp.tool()

@@ -164,12 +164,17 @@ def test_list_processes_returns_the_definitions():
 # ---- start_release -------------------------------------------------------
 
 
-def test_start_release_sends_the_three_start_variables(repo):
+def test_start_release_sends_the_start_variables(repo):
     client = FakeClient()
     result = tools.start_release(client, str(repo), "0.1.0", dry_run=True)
     key, variables = client.started
     assert key == "devflows-release"
-    assert variables == {"repo_path": str(repo), "version": "0.1.0", "dry_run": True}
+    assert variables == {
+        "repo_path": str(repo),
+        "version": "0.1.0",
+        "dry_run": True,
+        "approval_timeout": "PT24H",
+    }
     assert result["ok"] is True
     assert result["process_instance_id"] == "pi-1"
 
@@ -442,3 +447,32 @@ def test_doctor_checks_the_repository_only_when_asked(repo):
     assert not any(check["name"] == "devflows.yaml" for check in without["checks"])
     withrepo = tools.doctor(healthy_client(), str(repo))
     assert any(check["name"] == "devflows.yaml" for check in withrepo["checks"])
+
+
+# ---- the approval timeout ------------------------------------------------
+
+
+def test_start_release_passes_the_approval_timeout(repo):
+    client = FakeClient()
+    result = tools.start_release(client, str(repo), "0.2.0", dry_run=True, approval_timeout="PT2M")
+    assert client.started[1]["approval_timeout"] == "PT2M"
+    assert result["approval_timeout"] == "PT2M"
+
+
+def test_start_release_defaults_the_approval_timeout_to_a_day(repo):
+    client = FakeClient()
+    tools.start_release(client, str(repo), "0.2.0")
+    assert client.started[1]["approval_timeout"] == "PT24H"
+
+
+@pytest.mark.parametrize("bad", ["2 minutes", "", "PT", "P", "120"])
+def test_start_release_refuses_a_duration_the_engine_could_not_schedule(repo, bad):
+    result = tools.start_release(FakeClient(), str(repo), "0.2.0", approval_timeout=bad)
+    assert result["ok"] is False
+    assert "ISO 8601" in result["error"]
+
+
+@pytest.mark.parametrize("good", ["PT24H", "PT2M", "P1D", "PT1H30M", "P1DT12H"])
+def test_start_release_accepts_ordinary_durations(repo, good):
+    result = tools.start_release(FakeClient(), str(repo), "0.2.0", approval_timeout=good)
+    assert result["ok"] is True

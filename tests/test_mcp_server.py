@@ -32,9 +32,14 @@ def test_every_tool_has_a_description():
         assert tool.description, f"{name} has no description"
 
 
-def test_start_release_declares_its_three_arguments():
+def test_start_release_declares_its_arguments():
     schema = registered_tools()["start_release"].input_schema
-    assert set(schema["properties"]) == {"repo_path", "version", "dry_run"}
+    assert set(schema["properties"]) == {
+        "repo_path",
+        "version",
+        "dry_run",
+        "approval_timeout",
+    }
     assert set(schema["required"]) == {"repo_path", "version"}
 
 

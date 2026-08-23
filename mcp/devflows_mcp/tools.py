@@ -8,6 +8,7 @@ a readable 'error' string is worth more than a stack trace.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,11 @@ from devflows_core.engine import PROCESS_KEY, EngineError
 from devflows_core.paths import BpmnNotFound, default_bpmn_path
 
 DECISION_KEY = "release-policy"
+DEFAULT_APPROVAL_TIMEOUT = "PT24H"
+
+# An unparseable duration would only fail later, inside the engine, as a job
+# that cannot be scheduled. Catching it here gives a readable answer instead.
+_ISO_DURATION = re.compile(r"^P(?!$)(\d+[YMWD])*(T(?!$)(\d+[HMS])*)?$")
 
 # The CIB seven web UI. The older webapps under /camunda/app/ still work in 2.2
 # but render a "deprecated and no longer supported" banner, so do not link there.
@@ -68,10 +74,16 @@ def start_release(
     repo_path: str,
     version: str,
     dry_run: bool = True,
+    approval_timeout: str = DEFAULT_APPROVAL_TIMEOUT,
 ) -> dict[str, Any]:
     """Start a release run. Defaults to a dry run, because that is the safe default."""
     if not version or not version.strip():
         return _failure("A version is required, for example '0.1.0'")
+
+    if not _ISO_DURATION.match(approval_timeout or ""):
+        return _failure(
+            f"approval_timeout must be an ISO 8601 duration such as PT24H, not {approval_timeout!r}"
+        )
 
     try:
         load_config(repo_path)
@@ -82,6 +94,7 @@ def start_release(
         "repo_path": str(repo_path),
         "version": version.strip(),
         "dry_run": bool(dry_run),
+        "approval_timeout": approval_timeout,
     }
     try:
         instance_id = client.start_process(PROCESS_KEY, variables)
@@ -94,6 +107,7 @@ def start_release(
         "dry_run": bool(dry_run),
         "version": version.strip(),
         "repo_path": str(repo_path),
+        "approval_timeout": approval_timeout,
         "instance_url": INSTANCE_URL.format(instance_id=instance_id),
     }
 
