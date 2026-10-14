@@ -226,10 +226,12 @@ No tool raises, because the caller is a language model that has to explain the f
 
 `plugin/` is a Claude Code plugin around the same server:
 
-- `plugin/.mcp.json` starts `devflows-mcp` with `uv run`.
+- `plugin/.mcp.json` starts `devflows-mcp` with `uv run --project` pointed at this repository, so the
+  server starts no matter which repository the session is in. Load the plugin in place, for example
+  `claude --plugin-dir /path/to/cibseven-devflows/plugin`; it needs the Python project beside it.
 - `plugin/skills/release-with-devflows/SKILL.md` tells the agent when to use the engine and in what
   order to call the tools, including the rule that it must stop and ask before approving.
-- `plugin/commands/release.md` provides `/devflows:release <version> [--real]`.
+- `plugin/commands/release.md` provides `/cibseven-devflows:release <version> [--real]`.
 
 To wire the server into any other MCP client directly:
 
@@ -238,7 +240,7 @@ To wire the server into any other MCP client directly:
   "mcpServers": {
     "cibseven-devflows": {
       "command": "uv",
-      "args": ["run", "devflows-mcp"]
+      "args": ["run", "--project", "/path/to/cibseven-devflows", "devflows-mcp"]
     }
   }
 }

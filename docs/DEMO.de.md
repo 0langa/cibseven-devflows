@@ -109,7 +109,7 @@ zeigen.
 In Claude Code:
 
 ```
-/devflows:release 0.3.0
+/cibseven-devflows:release 0.3.0
 ```
 
 Claude führt `doctor` aus, listet die Gates auf und startet einen Lauf mit `dry_run=true`.

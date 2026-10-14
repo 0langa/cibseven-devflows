@@ -103,7 +103,7 @@ Open `processes/release-policy.dmn` in Camunda Modeler, or just show the table i
 In Claude Code:
 
 ```
-/devflows:release 0.3.0
+/cibseven-devflows:release 0.3.0
 ```
 
 Claude runs `doctor`, lists the gates, and starts a run with `dry_run=true`.

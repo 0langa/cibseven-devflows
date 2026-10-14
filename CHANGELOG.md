@@ -17,6 +17,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   release body.
 - The model is no longer asked to write notes when there are no commits to summarise, because it
   answers with a question rather than notes.
+- The plugin's MCP server starts from any working directory. `plugin/.mcp.json` ran a bare
+  `uv run devflows-mcp`, which fails with "program not found" in the repository being released; it
+  now passes `--project ${CLAUDE_PLUGIN_ROOT}/..`.
+- The docs name the command `/cibseven-devflows:release`. Plugin commands are namespaced by the
+  plugin name, so `/devflows:release` never existed.
+
+### Security
+
+- `pyjwt` 2.13.0 -> 2.15.1 in `uv.lock` (14 advisories, pulled in by `mcp[crypto]`).
 
 ## [0.2.0] - 2026-08-22
 
