@@ -25,6 +25,29 @@ def test_the_mcp_config_starts_the_devflows_server():
     assert "devflows-mcp" in server["args"]
 
 
+def test_the_mcp_config_finds_the_project_from_any_working_directory():
+    # The release command runs in the repository being released, not in this
+    # one, so a bare `uv run devflows-mcp` fails there with "program not found".
+    config = json.loads((PLUGIN / ".mcp.json").read_text("utf-8"))
+    args = config["mcpServers"]["cibseven-devflows"]["args"]
+    project = args[args.index("--project") + 1]
+    assert project == "${CLAUDE_PLUGIN_ROOT}/.."
+    project_dir = PLUGIN / project.replace("${CLAUDE_PLUGIN_ROOT}/", "")
+    pyproject = project_dir.resolve() / "pyproject.toml"
+    assert 'devflows-mcp = "devflows_mcp.server:main"' in pyproject.read_text("utf-8")
+
+
+def test_the_docs_use_the_namespaced_command_name():
+    # Plugin commands are namespaced by the plugin name, so /devflows:release does not exist.
+    manifest = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text("utf-8"))
+    command = f"/{manifest['name']}:release"
+    root = PLUGIN.parent
+    for doc in ("README.md", "docs/DEMO.md", "docs/DEMO.de.md"):
+        text = (root / doc).read_text("utf-8")
+        assert "/devflows:release" not in text, doc
+        assert command in text, doc
+
+
 def test_the_skill_has_frontmatter_with_a_name_and_a_description():
     text = read_skill()
     assert text.startswith("---")
