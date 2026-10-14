@@ -1,6 +1,6 @@
 [project]
 name = "cibseven-devflows"
-version = "0.1.0"
+version = "0.2.1"
 description = "Run developer workflows as BPMN processes on a local CIB seven engine"
 readme = "README.md"
 requires-python = ">=3.12"

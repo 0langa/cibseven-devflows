@@ -1,6 +1,6 @@
 {
   "name": "cibseven-devflows",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Run a repository's release ritual as a BPMN process on a local CIB seven engine, where a DMN decision says whether the release needs a human approval and the approval form carries the drafted release notes.",
   "author": { "name": "Julius" },
   "license": "Apache-2.0"

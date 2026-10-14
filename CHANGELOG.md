@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.2.1] - 2026-10-14
 
 ### Fixed
 
@@ -22,10 +22,25 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   now passes `--project ${CLAUDE_PLUGIN_ROOT}/..`.
 - The docs name the command `/cibseven-devflows:release`. Plugin commands are namespaced by the
   plugin name, so `/devflows:release` never existed.
+- The boundary event labels "Timed out", "Undo" and "Publish failed" no longer overlap the tasks
+  they are attached to in `processes/release.bpmn`; they sit below their events.
+- The package version matches the release. `pyproject.toml` and the three `__version__` strings
+  were not bumped for v0.2.0 and still said 0.1.0, which the MCP server also reported as its
+  version. They now say 0.2.1, like the plugin manifest.
 
 ### Security
 
 - `pyjwt` 2.13.0 -> 2.15.1 in `uv.lock` (14 advisories, pulled in by `mcp[crypto]`).
+
+### Documentation
+
+- `docs/DEMO.de.md`, a German version of the demo script.
+- The README shows the approval waiting in Tasklist with the drafted notes, and a completed process
+  instance.
+- `docs/DEMO.md` records the process instance that cut v0.2.0, and that its release body had to be
+  corrected by hand.
+- The README explains loading the plugin in place with `claude --plugin-dir`, and gives other MCP
+  clients the same `--project` argument.
 
 ## [0.2.0] - 2026-08-22
 
@@ -103,5 +118,6 @@ First release. It was cut by running this project's own release process.
 - The MCP server targets version 2.0 of the official MCP Python SDK, where the class formerly known
   as `FastMCP` is `mcp.server.mcpserver.MCPServer`.
 
+[0.2.1]: https://github.com/0langa/cibseven-devflows/releases/tag/v0.2.1
 [0.2.0]: https://github.com/0langa/cibseven-devflows/releases/tag/v0.2.0
 [0.1.0]: https://github.com/0langa/cibseven-devflows/releases/tag/v0.1.0

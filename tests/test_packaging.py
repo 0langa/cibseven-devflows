@@ -4,7 +4,7 @@ import devflows_core
 import devflows_mcp
 import devflows_worker
 
-EXPECTED_VERSION = "0.1.0"
+EXPECTED_VERSION = "0.2.1"
 
 
 def test_all_packages_share_one_version():

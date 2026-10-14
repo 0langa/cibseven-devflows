@@ -14,7 +14,7 @@ def read_skill() -> str:
 def test_the_manifest_names_the_plugin_and_its_version():
     manifest = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text("utf-8"))
     assert manifest["name"] == "cibseven-devflows"
-    assert manifest["version"] == "0.2.0"
+    assert manifest["version"] == "0.2.1"
     assert manifest["description"]
 
 
